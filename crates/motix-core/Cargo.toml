@@ -1,0 +1,15 @@
+[package]
+name = "motix-core"
+description = "Core types shared by every MOTIX crate: exact time, rationals, frame and sample rates, limits."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Deliberately dependency-free: this crate is at the bottom of the graph and
+# is linked into everything (client, server, workers).
+[dependencies]
+
+[lints]
+workspace = true

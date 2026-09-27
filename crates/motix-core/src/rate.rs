@@ -1,0 +1,367 @@
+//! Frame rates and sample rates, and exact conversion between indices and time.
+//!
+//! # Conversion rule
+//!
+//! For a rate of `num/den` events per second, event `k` happens exactly at
+//! `k · den/num` seconds. When that instant is not a whole flick, we use the
+//! **first flick at or after it** (`ceil`). Converting a time back to an index
+//! uses `floor`. Together these guarantee, for every rate up to 705,600,000 Hz:
+//!
+//! * `time_to_index(index_to_time(k)) == k` for every `k`, and
+//! * every time belongs to exactly one index: frame `k` covers
+//!   `[index_to_time(k), index_to_time(k + 1))`.
+//!
+//! For all common rates the instants are whole flicks anyway, so no rounding
+//! ever happens ([`FrameRate::is_exact`]).
+
+use crate::limits::{MAX_FRAME_RATE_FPS, MAX_RATE_DENOMINATOR, MAX_SAMPLE_RATE_HZ};
+use crate::time::{FLICKS_PER_SECOND, Rounding, div_round};
+use crate::{CoreError, Rational, Time, TimeRange};
+use std::fmt;
+
+/// Time of event `index` for a rate of `num/den` per second (`num, den > 0`).
+fn index_to_time(index: i64, num: i64, den: i64) -> Result<Time, CoreError> {
+    let flicks = div_round(
+        i128::from(index) * i128::from(den) * i128::from(FLICKS_PER_SECOND),
+        i128::from(num),
+        Rounding::Ceil,
+    );
+    i64::try_from(flicks)
+        .map(Time::from_flicks)
+        .map_err(|_| CoreError::Overflow)
+}
+
+/// Index of the event whose span contains `t`, for a rate of `num/den` per second.
+fn time_to_index(t: Time, num: i64, den: i64) -> i64 {
+    let index = div_round(
+        i128::from(t.flicks()) * i128::from(num),
+        i128::from(den) * i128::from(FLICKS_PER_SECOND),
+        Rounding::Floor,
+    );
+    // |result| <= |t| because num/den <= FLICKS_PER_SECOND (enforced by the
+    // validated constructors), so this conversion cannot fail.
+    i64::try_from(index).unwrap_or(if index < 0 { i64::MIN } else { i64::MAX })
+}
+
+fn is_exact(num: i64, den: i64) -> bool {
+    (i128::from(den) * i128::from(FLICKS_PER_SECOND)) % i128::from(num) == 0
+}
+
+/// A video frame rate: a positive exact fraction of frames per second.
+///
+/// Validated on construction: `0 < fps <= 1000` and denominator `<= 1,000,000`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FrameRate(Rational);
+
+impl FrameRate {
+    /// 23.976 fps (24000/1001) — film transferred to NTSC.
+    pub const FPS_23_976: Self = Self(Rational::new_const(24_000, 1_001));
+    /// 24 fps — cinema.
+    pub const FPS_24: Self = Self(Rational::new_const(24, 1));
+    /// 25 fps — PAL.
+    pub const FPS_25: Self = Self(Rational::new_const(25, 1));
+    /// 29.97 fps (30000/1001) — NTSC; common on phones.
+    pub const FPS_29_97: Self = Self(Rational::new_const(30_000, 1_001));
+    /// 30 fps.
+    pub const FPS_30: Self = Self(Rational::new_const(30, 1));
+    /// 47.952 fps (48000/1001).
+    pub const FPS_47_952: Self = Self(Rational::new_const(48_000, 1_001));
+    /// 48 fps.
+    pub const FPS_48: Self = Self(Rational::new_const(48, 1));
+    /// 50 fps.
+    pub const FPS_50: Self = Self(Rational::new_const(50, 1));
+    /// 59.94 fps (60000/1001).
+    pub const FPS_59_94: Self = Self(Rational::new_const(60_000, 1_001));
+    /// 60 fps.
+    pub const FPS_60: Self = Self(Rational::new_const(60, 1));
+    /// 90 fps.
+    pub const FPS_90: Self = Self(Rational::new_const(90, 1));
+    /// 100 fps.
+    pub const FPS_100: Self = Self(Rational::new_const(100, 1));
+    /// 119.88 fps (120000/1001).
+    pub const FPS_119_88: Self = Self(Rational::new_const(120_000, 1_001));
+    /// 120 fps — phone slow motion.
+    pub const FPS_120: Self = Self(Rational::new_const(120, 1));
+    /// 240 fps — phone slow motion.
+    pub const FPS_240: Self = Self(Rational::new_const(240, 1));
+
+    /// The frame rates offered in presets. All are exact in flicks.
+    pub const COMMON: [Self; 15] = [
+        Self::FPS_23_976,
+        Self::FPS_24,
+        Self::FPS_25,
+        Self::FPS_29_97,
+        Self::FPS_30,
+        Self::FPS_47_952,
+        Self::FPS_48,
+        Self::FPS_50,
+        Self::FPS_59_94,
+        Self::FPS_60,
+        Self::FPS_90,
+        Self::FPS_100,
+        Self::FPS_119_88,
+        Self::FPS_120,
+        Self::FPS_240,
+    ];
+
+    /// Validates a frame rate.
+    ///
+    /// # Errors
+    /// [`CoreError::OutOfRange`] unless `0 < fps <= 1000` with denominator `<= 1,000,000`.
+    pub fn new(fps: Rational) -> Result<Self, CoreError> {
+        let out_of_range = CoreError::OutOfRange {
+            what: "frame rate",
+            allowed: "greater than 0 and at most 1000 fps, denominator at most 1000000",
+        };
+        if !fps.is_positive() || fps.den() > MAX_RATE_DENOMINATOR || fps > Rational::from_integer(MAX_FRAME_RATE_FPS) {
+            return Err(out_of_range);
+        }
+        Ok(Self(fps))
+    }
+
+    /// Validates a frame rate given as `num/den`.
+    ///
+    /// # Errors
+    /// As [`FrameRate::new`], plus [`CoreError::ZeroDenominator`].
+    pub fn from_fraction(num: i64, den: i64) -> Result<Self, CoreError> {
+        Self::new(Rational::new(num, den)?)
+    }
+
+    /// The exact rate in frames per second.
+    #[must_use]
+    pub const fn as_rational(self) -> Rational {
+        self.0
+    }
+
+    /// Approximate frames per second, for display.
+    #[must_use]
+    pub fn fps_f64(self) -> f64 {
+        self.0.to_f64()
+    }
+
+    /// Start time of frame `frame` (see the module docs for the rounding rule).
+    ///
+    /// # Errors
+    /// [`CoreError::Overflow`] if the time is not representable.
+    pub fn frame_to_time(self, frame: i64) -> Result<Time, CoreError> {
+        index_to_time(frame, self.0.num(), self.0.den())
+    }
+
+    /// The frame being shown at time `t`.
+    #[must_use]
+    pub fn time_to_frame(self, t: Time) -> i64 {
+        time_to_index(t, self.0.num(), self.0.den())
+    }
+
+    /// The span of time during which `frame` is shown.
+    ///
+    /// # Errors
+    /// [`CoreError::Overflow`] if either end is not representable.
+    pub fn frame_range(self, frame: i64) -> Result<TimeRange, CoreError> {
+        let next = frame.checked_add(1).ok_or(CoreError::Overflow)?;
+        TimeRange::new(self.frame_to_time(frame)?, self.frame_to_time(next)?)
+    }
+
+    /// `true` if every frame boundary is a whole number of flicks.
+    #[must_use]
+    pub fn is_exact(self) -> bool {
+        is_exact(self.0.num(), self.0.den())
+    }
+
+    /// Duration of one frame, when it is a whole number of flicks.
+    #[must_use]
+    pub fn frame_duration(self) -> Option<Time> {
+        self.is_exact().then(|| {
+            // Exact, so the quotient is an integer below FLICKS_PER_SECOND.
+            let d = i128::from(self.0.den()) * i128::from(FLICKS_PER_SECOND) / i128::from(self.0.num());
+            Time::from_flicks(i64::try_from(d).unwrap_or(i64::MAX))
+        })
+    }
+}
+
+impl fmt::Display for FrameRate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.den() == 1 {
+            write!(f, "{} fps", self.0.num())
+        } else {
+            write!(f, "{:.3} fps ({})", self.fps_f64(), self.0)
+        }
+    }
+}
+
+/// An audio sample rate in hertz.
+///
+/// Validated on construction: `1 <= hz <= 768,000`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SampleRate(u32);
+
+impl SampleRate {
+    /// 44.1 kHz — CD audio.
+    pub const HZ_44_100: Self = Self(44_100);
+    /// 48 kHz — the video standard.
+    pub const HZ_48_000: Self = Self(48_000);
+    /// 88.2 kHz.
+    pub const HZ_88_200: Self = Self(88_200);
+    /// 96 kHz.
+    pub const HZ_96_000: Self = Self(96_000);
+    /// 176.4 kHz.
+    pub const HZ_176_400: Self = Self(176_400);
+    /// 192 kHz.
+    pub const HZ_192_000: Self = Self(192_000);
+
+    /// The sample rates offered in presets. All are exact in flicks.
+    pub const COMMON: [Self; 6] = [
+        Self::HZ_44_100,
+        Self::HZ_48_000,
+        Self::HZ_88_200,
+        Self::HZ_96_000,
+        Self::HZ_176_400,
+        Self::HZ_192_000,
+    ];
+
+    /// Validates a sample rate.
+    ///
+    /// # Errors
+    /// [`CoreError::OutOfRange`] unless `1 <= hz <= 768,000`.
+    pub fn new(hz: u32) -> Result<Self, CoreError> {
+        if hz == 0 || hz > MAX_SAMPLE_RATE_HZ {
+            return Err(CoreError::OutOfRange {
+                what: "sample rate",
+                allowed: "1 to 768000 Hz",
+            });
+        }
+        Ok(Self(hz))
+    }
+
+    /// Rate in hertz.
+    #[must_use]
+    pub const fn hz(self) -> u32 {
+        self.0
+    }
+
+    /// Start time of sample `sample`.
+    ///
+    /// # Errors
+    /// [`CoreError::Overflow`] if the time is not representable.
+    pub fn sample_to_time(self, sample: i64) -> Result<Time, CoreError> {
+        index_to_time(sample, i64::from(self.0), 1)
+    }
+
+    /// The sample playing at time `t`.
+    #[must_use]
+    pub fn time_to_sample(self, t: Time) -> i64 {
+        time_to_index(t, i64::from(self.0), 1)
+    }
+
+    /// `true` if every sample boundary is a whole number of flicks.
+    #[must_use]
+    pub fn is_exact(self) -> bool {
+        is_exact(i64::from(self.0), 1)
+    }
+}
+
+impl fmt::Display for SampleRate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} Hz", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_common_rates_are_exact() {
+        for r in FrameRate::COMMON {
+            assert!(r.is_exact(), "{r} should be exact");
+            assert!(FrameRate::new(r.as_rational()).is_ok(), "{r} should validate");
+        }
+        for r in SampleRate::COMMON {
+            assert!(r.is_exact(), "{r} should be exact");
+        }
+        for hz in [8_000, 11_025, 16_000, 22_050, 32_000] {
+            assert!(SampleRate::new(hz).unwrap().is_exact());
+        }
+    }
+
+    #[test]
+    fn known_frame_durations() {
+        assert_eq!(FrameRate::FPS_24.frame_duration(), Some(Time::from_flicks(29_400_000)));
+        assert_eq!(
+            FrameRate::FPS_23_976.frame_duration(),
+            Some(Time::from_flicks(29_429_400))
+        );
+        assert_eq!(
+            FrameRate::FPS_29_97.frame_duration(),
+            Some(Time::from_flicks(23_543_520))
+        );
+        assert_eq!(
+            FrameRate::FPS_59_94.frame_duration(),
+            Some(Time::from_flicks(11_771_760))
+        );
+        // One hour of 29.97 fps is 107,892.107... frames; frame 107,892 starts just before 1 h.
+        let hour = Time::from_seconds(3_600).unwrap();
+        assert_eq!(FrameRate::FPS_29_97.time_to_frame(hour), 107_892);
+    }
+
+    #[test]
+    fn validation() {
+        assert!(FrameRate::from_fraction(0, 1).is_err());
+        assert!(FrameRate::from_fraction(-24, 1).is_err());
+        assert!(FrameRate::from_fraction(1_001, 1).is_err());
+        assert!(FrameRate::from_fraction(1_000, 1).is_ok());
+        assert!(FrameRate::from_fraction(1, 1_000_001).is_err());
+        assert!(FrameRate::from_fraction(24, 0).is_err());
+        assert!(SampleRate::new(0).is_err());
+        assert!(SampleRate::new(768_001).is_err());
+        assert!(SampleRate::new(768_000).is_ok());
+    }
+
+    #[test]
+    fn inexact_rate_still_round_trips() {
+        let odd = FrameRate::from_fraction(11, 1).unwrap(); // 11 does not divide 705,600,000
+        assert!(!odd.is_exact());
+        assert_eq!(odd.frame_duration(), None);
+        for k in -1_000..1_000 {
+            let t = odd.frame_to_time(k).unwrap();
+            assert_eq!(odd.time_to_frame(t), k);
+            assert_eq!(odd.time_to_frame(Time::from_flicks(t.flicks() - 1)), k - 1);
+        }
+    }
+
+    #[test]
+    fn frame_range_partitions_time() {
+        let r = FrameRate::FPS_29_97;
+        let a = r.frame_range(10).unwrap();
+        let b = r.frame_range(11).unwrap();
+        assert_eq!(a.end(), b.start());
+        assert_eq!(a.duration(), r.frame_duration().unwrap());
+        assert!(r.frame_range(i64::MAX).is_err());
+    }
+
+    #[test]
+    fn extremes_do_not_panic() {
+        for r in FrameRate::COMMON {
+            let _ = r.time_to_frame(Time::MAX);
+            let _ = r.time_to_frame(Time::MIN);
+            assert!(r.frame_to_time(i64::MAX).is_err());
+            assert!(r.frame_to_time(i64::MIN).is_err());
+        }
+        let fastest = FrameRate::from_fraction(1_000, 1).unwrap();
+        let slowest = FrameRate::from_fraction(1, 1_000_000).unwrap();
+        for r in [fastest, slowest] {
+            let _ = r.time_to_frame(Time::MAX);
+            let _ = r.frame_to_time(i64::MAX);
+        }
+        let s = SampleRate::new(768_000).unwrap();
+        let _ = s.time_to_sample(Time::MIN);
+        assert!(s.sample_to_time(i64::MAX).is_err());
+    }
+
+    #[test]
+    fn display() {
+        assert_eq!(FrameRate::FPS_25.to_string(), "25 fps");
+        assert_eq!(FrameRate::FPS_23_976.to_string(), "23.976 fps (24000/1001)");
+        assert_eq!(SampleRate::HZ_48_000.to_string(), "48000 Hz");
+    }
+}

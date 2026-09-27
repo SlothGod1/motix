@@ -1,0 +1,62 @@
+# cargo-deny policy. Run locally with `cargo deny check`.
+# Project license is GPL-3.0-or-later (OD-1): every dependency must be GPL-3.0 compatible.
+
+[graph]
+all-features = true
+
+[advisories]
+# RustSec advisories: vulnerabilities fail the build; yanked crates too.
+yanked = "deny"
+unmaintained = "workspace"
+ignore = []
+
+[licenses]
+confidence-threshold = 0.93
+# GPL-3.0-compatible licenses only. Adding a license here needs a row in
+# LICENSING_AND_COSTS.md and owner review. Notably absent on purpose:
+# "OpenSSL" (GPL-compatibility disputed — RR-13), AGPL, SSPL, BUSL, any
+# non-commercial or "source-available" license.
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "GPL-2.0-or-later",
+  "GPL-3.0-or-later",
+  "ISC",
+  "LGPL-2.1-or-later",
+  "LGPL-3.0-or-later",
+  "MIT",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+
+# Fonts embedded by egui (Ubuntu, Hack, Noto Emoji). Font licenses govern the fonts,
+# which are separate works bundled alongside GPL code — permitted by both licenses.
+[[licenses.exceptions]]
+crate = "epaint_default_fonts"
+allow = ["OFL-1.1", "Ubuntu-font-1.0"]
+
+[licenses.private]
+# Our own unpublished workspace crates are GPL-3.0-or-later by definition.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Our own workspace crates reference each other by path; that is not a registry wildcard.
+allow-wildcard-paths = true
+deny = [
+  { crate = "openssl", reason = "Use rustls; OpenSSL license GPL compatibility is disputed (RR-13)." },
+  { crate = "openssl-sys", reason = "Use rustls; OpenSSL license GPL compatibility is disputed (RR-13)." },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

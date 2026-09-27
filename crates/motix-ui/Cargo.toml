@@ -1,0 +1,20 @@
+[package]
+name = "motix-ui"
+description = "The MOTIX user interface (egui): panels, viewer, timeline, media bin, command palette."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+motix-core.workspace = true
+motix-app.workspace = true
+egui.workspace = true
+egui_tiles.workspace = true
+
+[dev-dependencies]
+egui_kittest.workspace = true
+
+[lints]
+workspace = true

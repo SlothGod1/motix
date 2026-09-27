@@ -1,0 +1,21 @@
+[package]
+name = "motix"
+description = "MOTIX — local-first video editor and motion graphics for social media."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "motix"
+path = "src/main.rs"
+
+[dependencies]
+motix-ui.workspace = true
+eframe.workspace = true
+egui.workspace = true
+rfd.workspace = true
+
+[lints]
+workspace = true

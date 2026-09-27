@@ -1,0 +1,2 @@
+# Proper nouns that clippy's doc_markdown lint should not ask to put in backticks.
+doc-valid-idents = ["..", "TikTok", "YouTube", "MOTIX", "WebGPU", "AccessKit", "FFmpeg", "HDR10", "macOS"]
