@@ -4,8 +4,10 @@
 use without a manual, powerful enough to grow into professional compositing — with private, peer-to-peer
 collaboration and an optional self-hosted server.
 
-> **Status: Phase 0 (foundations).** The architecture is documented and the first code exists: the `motix-core`
-> crate (exact time, frame/sample rates), the first MOTIX window (panels, viewer, timeline, media bin, command palette), tests, CI and dependency policy. Video playback is next.
+> **Status: developer preview.** The architecture is documented and the app runs on Windows and Linux: dockable
+> panels, a DaVinci Resolve-style timeline (tracks named after your files, linked video/audio, move, trim,
+> blade, markers, undo), instant media inspection (size, frame rate, HDR), typed project size and frame rate,
+> and signed automatic updates from GitHub. Video playback is next.
 
 ## What it will be
 

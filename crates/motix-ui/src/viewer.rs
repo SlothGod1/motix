@@ -1,4 +1,8 @@
-//! The viewer: the canvas at its true aspect ratio, safe-area guides and transport controls.
+//! The viewer: the project frame at its true shape, what's on the timeline at the
+//! playhead (placed with its fit mode), safe-area guides and transport controls.
+//!
+//! Pictures are shown as labelled placeholders until video decoding arrives; their
+//! position and size are already exactly what the finished video will use.
 
 use crate::theme;
 use motix_app::{Action, AppState, MediaKind};
@@ -10,12 +14,70 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action
     let painter = ui.painter_at(full);
     painter.rect_filled(backdrop, 6.0, theme::BG);
 
-    // Canvas at its real aspect ratio, centred in the stage.
-    let (canvas_w, canvas_h) = state
-        .canvas
-        .fit_within(backdrop.width() - 24.0, backdrop.height() - 24.0);
+    let project = state.project.resolution;
+    let (canvas_w, canvas_h) = project.fit_within(backdrop.width() - 24.0, backdrop.height() - 24.0);
     let canvas = egui::Rect::from_center_size(backdrop.center(), egui::vec2(canvas_w, canvas_h));
     painter.rect_filled(canvas, 2.0, egui::Color32::BLACK);
+
+    let clip = state.timeline.top_picture_at(state.playhead);
+    let (headline, detail) = if let Some(clip) = clip {
+        let scale = canvas.width() / project.width as f32;
+        let source = clip.source_size.unwrap_or(project);
+        let (x, y, w, h) = clip.fit.place(source, project);
+        let pic = egui::Rect::from_min_size(
+            canvas.min + egui::vec2(x as f32 * scale, y as f32 * scale),
+            egui::vec2(w as f32 * scale, h as f32 * scale),
+        );
+        let kind = state.media.get(clip.media).map_or(MediaKind::Video, |m| m.kind);
+        let color = if kind == MediaKind::Image {
+            theme::IMAGE
+        } else {
+            theme::VIDEO
+        };
+        // Parts outside the frame (cropped by "fill" / "original size") are drawn faintly.
+        painter.rect_stroke(
+            pic,
+            0.0,
+            egui::Stroke::new(1.0, color.linear_multiply(0.35)),
+            egui::StrokeKind::Inside,
+        );
+        let inside = painter.with_clip_rect(canvas);
+        inside.rect_filled(pic, 0.0, color.linear_multiply(0.28));
+        // A simple grid so scaling and cropping are visible.
+        for i in 1..4 {
+            let fx = pic.min.x + pic.width() * i as f32 / 4.0;
+            let fy = pic.min.y + pic.height() * i as f32 / 4.0;
+            let stroke = egui::Stroke::new(1.0, color.linear_multiply(0.25));
+            inside.line_segment([egui::pos2(fx, pic.min.y), egui::pos2(fx, pic.max.y)], stroke);
+            inside.line_segment([egui::pos2(pic.min.x, fy), egui::pos2(pic.max.x, fy)], stroke);
+        }
+        inside.rect_stroke(pic, 0.0, egui::Stroke::new(1.5, color), egui::StrokeKind::Inside);
+        let placement = if source == project {
+            format!("{source} · same size as the project")
+        } else {
+            format!("{source} · {}", clip.fit.label().to_lowercase())
+        };
+        (
+            clip.name.clone(),
+            format!("{placement}\nVideo playback arrives in the next update."),
+        )
+    } else if state.timeline.is_empty() {
+        match state.selected_media.and_then(|m| state.media.get(m)) {
+            Some(item) => (
+                item.name.clone(),
+                format!("{}\nDouble-click it or drag it onto the timeline.", item.summary()),
+            ),
+            None => (
+                "Drop a video here".to_owned(),
+                "or use File > Import media (Ctrl+I)".to_owned(),
+            ),
+        }
+    } else {
+        (
+            "Nothing here".to_owned(),
+            "There's no picture on the timeline at this point.".to_owned(),
+        )
+    };
     painter.rect_stroke(
         canvas,
         2.0,
@@ -23,25 +85,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action
         egui::StrokeKind::Outside,
     );
 
-    let selected = state.selected_media.and_then(|i| state.media.items().get(i));
-    let (headline, detail) = match selected {
-        None => (
-            "Drop a video here".to_owned(),
-            "or use File > Import media (Ctrl+I)".to_owned(),
-        ),
-        Some(item) if item.kind == MediaKind::Video => (
-            item.name.clone(),
-            "Video playback arrives in the next M1 update.".to_owned(),
-        ),
-        Some(item) => (
-            item.name.clone(),
-            format!("{} · preview arrives in the next M1 update.", item.kind.label()),
-        ),
-    };
     let canvas_response = ui.interact(canvas, ui.id().with("motix_canvas"), egui::Sense::hover());
-    let described = format!("Viewer, {} canvas: {headline}. {detail}", state.canvas.name);
+    let described = format!("Viewer, {project} frame: {headline}. {detail}");
     canvas_response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, &described));
-    // Centred, wrapped text inside the canvas so it never spills over narrow (vertical) canvases.
+    // Centred, wrapped text so it never spills over narrow (vertical) frames.
     let wrap = (canvas.width() - 28.0).max(40.0);
     let centred = |text: &str, size: f32, color: egui::Color32| {
         let mut job = egui::text::LayoutJob::simple(text.to_owned(), egui::FontId::proportional(size), color, wrap);
@@ -56,7 +103,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action
     painter.galley(egui::pos2(canvas.center().x, top + head_h + 6.0), sub, theme::TEXT_WEAK);
 
     if state.show_safe_areas {
-        let (left, top, right, bottom) = state.canvas.safe_insets();
+        let (left, top, right, bottom) = project.safe_insets();
         let safe = egui::Rect::from_min_max(
             egui::pos2(
                 canvas.min.x + canvas.width() * left,
@@ -115,10 +162,14 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action
             .color(theme::TEXT),
     );
     row_ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let p = &state.project;
         ui.label(
             egui::RichText::new(format!(
-                "{} · {}×{} · {}",
-                state.canvas.name, state.canvas.width, state.canvas.height, state.frame_rate
+                "{} · {} fps · {} · {}-bit",
+                p.resolution,
+                p.frame_rate.short_label(),
+                if p.color.is_hdr() { p.color.label() } else { "SDR" },
+                p.bit_depth
             ))
             .color(theme::TEXT_WEAK),
         );

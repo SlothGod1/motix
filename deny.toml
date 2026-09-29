@@ -42,6 +42,13 @@ allow = [
 crate = "epaint_default_fonts"
 allow = ["OFL-1.1", "Ubuntu-font-1.0"]
 
+# Mozilla's list of trusted certificate authorities, pulled in by rustls-platform-verifier
+# (updates, ADR-027). It is data, not code, under a permissive data licence whose only
+# condition is keeping the licence text — compatible with shipping alongside GPL code.
+[[licenses.exceptions]]
+crate = "webpki-root-certs"
+allow = ["CDLA-Permissive-2.0"]
+
 [licenses.private]
 # Our own unpublished workspace crates are GPL-3.0-or-later by definition.
 ignore = true

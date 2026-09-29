@@ -168,6 +168,12 @@ pub struct TimeRange {
 }
 
 impl TimeRange {
+    /// The empty range at zero.
+    pub const EMPTY: Self = Self {
+        start: Time::ZERO,
+        end: Time::ZERO,
+    };
+
     /// Creates a range.
     ///
     /// # Errors

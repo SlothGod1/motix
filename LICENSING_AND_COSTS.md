@@ -34,7 +34,13 @@ GPL obligations we must meet on every release: ship or link the complete corresp
 | iroh, iroh-blobs | MIT / Apache-2.0 | P2P networking | None | None | $0 | quinn + custom NAT traversal |
 | rustls | Apache-2.0 / MIT / ISC | TLS | None | None | $0 | — |
 | ring / aws-lc-rs (rustls crypto provider) | ring: Apache-2.0 AND ISC; aws-lc-rs: ISC AND (Apache-2.0 OR ISC) — **Verify** | Crypto primitives | Notices | None | $0 | RustCrypto |
-| ed25519-dalek, x25519-dalek | BSD-3-Clause | Signatures | Notice | None | $0 | RustCrypto |
+| ed25519-dalek, x25519-dalek | BSD-3-Clause | Signatures (update signing in use since preview 3) | Notice | None | $0 | RustCrypto |
+| ureq 3 | MIT / Apache-2.0 | HTTPS client for update checks and downloads | None | None | $0 | reqwest |
+| rustls-platform-verifier | MIT / Apache-2.0 | Uses the operating system's trusted certificates | None | None | $0 | webpki-roots |
+| webpki-root-certs (via the verifier) | CDLA-Permissive-2.0 (data) | Mozilla CA list fallback | Keep the licence text; data, not code — allowed as a cargo-deny exception | None | $0 | — |
+| sha2, semver, serde_json | MIT / Apache-2.0 | Checksums, version comparison, GitHub API JSON | None | None | $0 | — |
+| zip (deflate only) | MIT | Unpacking update archives | None | None | $0 | tar + flate2 |
+| dirs | MIT / Apache-2.0 | Per-user settings/download folders | None | None | $0 | directories |
 | blake3 | CC0-1.0 OR Apache-2.0 | Content hashing | None | None | $0 | SHA-256 |
 | age / rage, argon2, zeroize | MIT / Apache-2.0 | Backup & key-file encryption | None | None | $0 | — |
 | keyring | MIT / Apache-2.0 | OS keystore access | None | None | $0 | — |

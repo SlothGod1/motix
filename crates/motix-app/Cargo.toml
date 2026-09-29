@@ -1,6 +1,6 @@
 [package]
 name = "motix-app"
-description = "UI-independent application state and actions for MOTIX (menus, shortcuts, command palette, media bin, canvas presets)."
+description = "UI-independent application layer for MOTIX: project settings, media bin, timeline, undo and actions."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 motix-core.workspace = true
+motix-probe.workspace = true
 
 [lints]
 workspace = true

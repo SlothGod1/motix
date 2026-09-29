@@ -1,6 +1,6 @@
 # Development Guide
 
-> Phase 0 is in progress. What exists today: the Cargo workspace, `motix-core`, CI workflows, `deny.toml`.
+> Developer preview. What exists today: the Cargo workspace, `motix-core`, `motix-probe`, `motix-app`, `motix-ui`, `apps/motix`, CI workflows, `deny.toml`.
 > Commands marked *(planned)* don't exist yet.
 > Note the distinction: **developers** install toolchains; **users** never do (ADR-017).
 
@@ -9,15 +9,16 @@
 1. Install Rust with [rustup](https://rustup.rs). The pinned version in `rust-toolchain.toml` installs itself on first use.
 2. From the repository root:
    ```
-   cargo test --workspace      # all tests (47 today)
+   cargo test --workspace      # all tests (108 today)
    cargo clippy --workspace --all-targets
    cargo fmt --all
    cargo run -p motix          # open the MOTIX window
    cargo test -p motix-ui -- --ignored   # render UI screenshots to target/screenshots (needs a GPU)
    ```
 3. Optional: `cargo install cargo-deny` then `cargo deny check` (the same license/advisory policy CI enforces).
+4. Release helpers: `cargo run -p xtask -- keygen <file>` (new update-signing key pair), `manifest <version> <files…>`, `sign <file>` (reads `MOTIX_UPDATE_SIGNING_KEY`). CI uses these to publish a signed preview release for every green push to `main` (ADR-027). Local builds are "developer builds" (`0.1.0-dev`) and never update themselves; set `MOTIX_VERSION` at build time to stamp a version.
 
-CI (`.github/workflows/ci.yml`) runs on GitHub once the repository is pushed there; it has not run yet.
+CI (`.github/workflows/ci.yml`) runs on every push to GitHub and publishes a Windows and a Linux preview build as downloadable artifacts.
 
 > **Note for the local copy:** the Claude desktop bridge can't write into folders named `.github`, so in the
 > Editing Software folder these files live in `_github/`. Rename `_github` → `.github` before the first push.
@@ -102,7 +103,7 @@ A PR adding a crate or C library must state: purpose, license (and that `cargo d
 | Cross-platform | Windows + Linux runners | Every PR |
 | Manual hardware matrix | NVIDIA / AMD / Intel GPUs, HDR display, Wayland/X11 | Before release |
 
-Media fixtures with unclear licenses are never committed; the fixture manifest downloads only files with known, redistributable licenses or generates them.
+Media fixtures with unclear licenses are never committed; the fixture manifest downloads only files with known, redistributable licenses or generates them. Today's fixtures (`crates/motix-probe/tests/fixtures`, ~230 KB) are synthetic FFmpeg test patterns made by `generate.sh`.
 
 ## 7. Branching and releases
 

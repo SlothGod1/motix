@@ -25,6 +25,38 @@ pub const AUDIO: Color32 = Color32::from_rgb(0x2E, 0xC4, 0x8B);
 /// Image items.
 pub const IMAGE: Color32 = Color32::from_rgb(0xF5, 0xA6, 0x23);
 
+/// Timeline: video clip body (DaVinci Resolve-style blue).
+pub const CLIP_VIDEO: Color32 = Color32::from_rgb(0x2C, 0x55, 0x80);
+/// Timeline: video clip name band.
+pub const CLIP_VIDEO_BAR: Color32 = Color32::from_rgb(0x3E, 0x72, 0xA8);
+/// Timeline: audio clip body (Resolve-style green).
+pub const CLIP_AUDIO: Color32 = Color32::from_rgb(0x25, 0x5E, 0x40);
+/// Timeline: audio clip name band.
+pub const CLIP_AUDIO_BAR: Color32 = Color32::from_rgb(0x33, 0x80, 0x57);
+/// Timeline: still-image clip body.
+pub const CLIP_IMAGE: Color32 = Color32::from_rgb(0x7A, 0x55, 0x1A);
+/// Timeline: still-image clip name band.
+pub const CLIP_IMAGE_BAR: Color32 = Color32::from_rgb(0xA3, 0x74, 0x26);
+/// Selected clip outline (Resolve uses orange).
+pub const SELECTED: Color32 = Color32::from_rgb(0xF2, 0x8C, 0x28);
+/// Timeline lane background.
+pub const LANE: Color32 = Color32::from_rgb(0x1A, 0x1D, 0x23);
+
+/// Marker colour for display.
+#[must_use]
+pub fn marker(color: motix_app::MarkerColor) -> Color32 {
+    use motix_app::MarkerColor as M;
+    match color {
+        M::Blue => Color32::from_rgb(0x3D, 0x8B, 0xFF),
+        M::Cyan => Color32::from_rgb(0x2E, 0xD3, 0xE0),
+        M::Green => Color32::from_rgb(0x3C, 0xC8, 0x5A),
+        M::Yellow => Color32::from_rgb(0xF2, 0xD0, 0x2E),
+        M::Red => Color32::from_rgb(0xF0, 0x44, 0x44),
+        M::Pink => Color32::from_rgb(0xF0, 0x6E, 0xC8),
+        M::Purple => Color32::from_rgb(0x9A, 0x6B, 0xFF),
+    }
+}
+
 /// Applies the MOTIX theme to a context.
 pub fn apply(ctx: &egui::Context) {
     let mut v = Visuals::dark();

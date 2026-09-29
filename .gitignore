@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+*.swp
+.DS_Store
+Thumbs.db
+
+# Never commit update-signing secrets.
+*signing-key*

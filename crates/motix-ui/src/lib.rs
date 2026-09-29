@@ -12,7 +12,9 @@
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::assigning_clones,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    clippy::similar_names,
+    clippy::many_single_char_names
 )]
 
 mod inspector;
@@ -21,9 +23,10 @@ mod palette;
 mod panes;
 pub mod theme;
 mod timeline;
+mod updates;
 mod viewer;
 
-use motix_app::actions::{self, Action, Availability, Key};
+use motix_app::actions::{self, Action, Key};
 use motix_app::{AppState, Outcome, Shortcut};
 use motix_core::{FLICKS_PER_SECOND, Time};
 use std::path::PathBuf;
@@ -37,14 +40,23 @@ pub enum Request {
     PickMediaFiles,
     /// Close the window.
     Quit,
+    /// Check for updates now (Help > Check for updates…, or the Check now button).
+    CheckForUpdates,
+    /// Install the downloaded update and restart MOTIX.
+    InstallUpdateNow,
+    /// Install the downloaded update when MOTIX closes.
+    InstallUpdateOnExit,
+    /// Turn automatic update checks on or off.
+    SetAutoCheck(bool),
 }
 
 /// Transient UI-only state (never part of the project document).
 pub(crate) struct UiState {
-    pub timeline_px_per_second: f32,
-    pub timeline_scroll_seconds: f32,
+    pub timeline: timeline::TimelineView,
+    pub settings: inspector::SettingsFields,
     pub palette: palette::Palette,
     pub show_about: bool,
+    pub updates: updates::UpdatesView,
 }
 
 /// The whole MOTIX window.
@@ -53,6 +65,7 @@ pub struct MotixUi {
     ui_state: UiState,
     tree: egui_tiles::Tree<Pane>,
     requests: Vec<Request>,
+    update_info: motix_app::UpdateInfo,
     gpu_info: String,
     themed: bool,
 }
@@ -64,13 +77,15 @@ impl MotixUi {
         Self {
             state: AppState::default(),
             ui_state: UiState {
-                timeline_px_per_second: 80.0,
-                timeline_scroll_seconds: 0.0,
+                timeline: timeline::TimelineView::default(),
+                settings: inspector::SettingsFields::default(),
                 palette: palette::Palette::default(),
                 show_about: false,
+                updates: updates::UpdatesView::default(),
             },
             tree: panes::default_layout(),
             requests: Vec::new(),
+            update_info: motix_app::UpdateInfo::default(),
             gpu_info: gpu_info.into(),
             themed: false,
         }
@@ -82,6 +97,22 @@ impl MotixUi {
         &self.state
     }
 
+    /// Tells the UI where the updater is (called by the host every frame or on change).
+    pub fn set_update_info(&mut self, info: motix_app::UpdateInfo) {
+        self.update_info = info;
+    }
+
+    /// Whether the updates window is open.
+    #[must_use]
+    pub fn updates_window_open(&self) -> bool {
+        self.ui_state.updates.open
+    }
+
+    /// Write access to application state (for tests and scripted demos).
+    pub fn state_mut(&mut self) -> &mut AppState {
+        &mut self.state
+    }
+
     /// Whether the command palette is open.
     #[must_use]
     pub fn palette_open(&self) -> bool {
@@ -90,23 +121,7 @@ impl MotixUi {
 
     /// Adds files chosen by the user (from a dialog or drag and drop).
     pub fn import(&mut self, paths: Vec<PathBuf>) {
-        let r = self.state.media.add_paths(paths);
-        self.state.status = match (r.added, r.duplicates, r.unsupported) {
-            (0, 0, 0) => "Nothing was imported.".to_owned(),
-            (a, d, u) => {
-                let mut parts = vec![format!("Imported {a} file{}", if a == 1 { "" } else { "s" })];
-                if d > 0 {
-                    parts.push(format!("{d} already in the project"));
-                }
-                if u > 0 {
-                    parts.push(format!("{u} not a supported media file"));
-                }
-                parts.join(" · ")
-            }
-        };
-        if self.state.selected_media.is_none() && !self.state.media.items().is_empty() {
-            self.state.selected_media = Some(0);
-        }
+        self.state.import(paths);
     }
 
     /// Requests produced since the last call, for the host to handle.
@@ -126,6 +141,10 @@ impl MotixUi {
             }
             Outcome::ShowAbout => self.ui_state.show_about = true,
             Outcome::Quit => self.requests.push(Request::Quit),
+            Outcome::CheckForUpdates => {
+                self.ui_state.updates.open = true;
+                self.requests.push(Request::CheckForUpdates);
+            }
         }
     }
 
@@ -140,7 +159,10 @@ impl MotixUi {
         self.handle_shortcuts(&ctx);
         self.tick_playback(&ctx);
 
-        egui::Panel::top("motix_top_bar").show(ui, |ui| self.top_bar(ui));
+        egui::Panel::top("motix_top_bar").show(ui, |ui| {
+            self.top_bar(ui);
+            updates::banner(ui, &mut self.ui_state.updates, &self.update_info, &mut self.requests);
+        });
         egui::Panel::bottom("motix_status_bar").show(ui, |ui| self.status_bar(ui));
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::BG).inner_margin(6.0))
@@ -161,6 +183,8 @@ impl MotixUi {
         if let Some(action) = self.ui_state.palette.show(&ctx) {
             self.perform(action);
         }
+        self.match_modal(&ctx);
+        updates::window(&ctx, &mut self.ui_state.updates, &self.update_info, &mut self.requests);
         self.about_modal(&ctx);
     }
 
@@ -169,12 +193,12 @@ impl MotixUi {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.label(egui::RichText::new("MOTIX").strong().color(theme::ACCENT).size(16.0));
             ui.add_space(8.0);
-            for menu in ["File", "Edit", "Playback", "View", "Collaborate", "Help"] {
+            for menu in actions::MENUS {
                 ui.menu_button(menu, |ui| {
                     for info in actions::ALL.iter().filter(|i| i.menu == menu) {
                         let mut text = egui::RichText::new(info.label);
-                        if let Availability::Planned(m) = info.availability {
-                            text = egui::RichText::new(format!("{}  ({m})", info.label)).color(theme::TEXT_WEAK);
+                        if let Some(note) = info.availability.note() {
+                            text = egui::RichText::new(format!("{}  ({note})", info.label)).color(theme::TEXT_WEAK);
                         }
                         let mut button = egui::Button::new(text);
                         if let Some(s) = info.shortcut {
@@ -207,7 +231,13 @@ impl MotixUi {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(&self.state.status).color(theme::TEXT_WEAK));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new("Developer preview · M1").color(theme::ACCENT));
+                ui.label(
+                    egui::RichText::new(format!("MOTIX {}", self.update_info.current_version)).color(theme::ACCENT),
+                );
+                if let Some(line) = self.update_info.status_line() {
+                    ui.separator();
+                    ui.label(egui::RichText::new(line).color(theme::AUDIO));
+                }
                 ui.separator();
                 ui.label(egui::RichText::new(&self.gpu_info).color(theme::TEXT_WEAK));
             });
@@ -281,6 +311,67 @@ impl MotixUi {
         }
     }
 
+    fn match_modal(&mut self, ctx: &egui::Context) {
+        let Some(offer) = self.state.match_offer.clone() else {
+            return;
+        };
+        let mut choice = None;
+        let r = egui::Modal::new(egui::Id::new("motix_match")).show(ctx, |ui| {
+            ui.set_width(440.0);
+            ui.heading("Match the project to this video?");
+            ui.add_space(4.0);
+            ui.label(format!(
+                "\u{201c}{}\u{201d} is different from your project settings:",
+                offer.name
+            ));
+            ui.add_space(6.0);
+            egui::Grid::new("motix_match_grid")
+                .num_columns(3)
+                .spacing([18.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label("");
+                    ui.label(egui::RichText::new("Project now").color(theme::TEXT_WEAK));
+                    ui.label(egui::RichText::new("This video").color(theme::TEXT_WEAK));
+                    ui.end_row();
+                    for (what, now, clip) in offer.differences(&self.state.project) {
+                        ui.label(what);
+                        ui.label(now);
+                        ui.label(egui::RichText::new(clip).strong());
+                        ui.end_row();
+                    }
+                });
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new(format!(
+                    "If you keep your settings, clips of other sizes are placed with \u{201c}{}\u{201d}. \
+                     You can change any setting later in the Inspector.",
+                    self.state.project.default_fit.label()
+                ))
+                .color(theme::TEXT_WEAK),
+            );
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .add(egui::Button::new(egui::RichText::new("Match project").strong()).fill(theme::ACCENT))
+                    .clicked()
+                {
+                    choice = Some(true);
+                }
+                if ui.button("Keep current settings").clicked() {
+                    choice = Some(false);
+                }
+            });
+        });
+        if r.should_close() && choice.is_none() {
+            choice = Some(false);
+        }
+        match choice {
+            Some(true) => self.state.accept_match(),
+            Some(false) => self.state.decline_match(),
+            None => {}
+        }
+    }
+
     fn about_modal(&mut self, ctx: &egui::Context) {
         if !self.ui_state.show_about {
             return;
@@ -289,8 +380,8 @@ impl MotixUi {
             ui.set_width(360.0);
             ui.heading(egui::RichText::new("MOTIX").color(theme::ACCENT));
             ui.label(format!(
-                "Version {} — developer preview (milestone M1)",
-                env!("CARGO_PKG_VERSION")
+                "Version {} — developer preview",
+                self.update_info.current_version
             ));
             ui.add_space(6.0);
             ui.label("Local-first video editing and motion graphics for social media.");
@@ -312,6 +403,9 @@ pub(crate) fn egui_key(s: Shortcut) -> egui::Key {
         Key::ArrowRight => egui::Key::ArrowRight,
         Key::Home => egui::Key::Home,
         Key::Escape => egui::Key::Escape,
+        Key::Delete => egui::Key::Delete,
+        Key::ArrowUp => egui::Key::ArrowUp,
+        Key::ArrowDown => egui::Key::ArrowDown,
         Key::Char(c) => egui::Key::from_name(&c.to_string()).unwrap_or(egui::Key::F35),
     }
 }

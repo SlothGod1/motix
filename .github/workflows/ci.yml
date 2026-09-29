@@ -1,11 +1,18 @@
-# Build, lint and test on every push to main and every pull request.
+# Build, lint and test on every push and pull request.
+#
+# Automatic delivery (ADR-029): Claude's cloud sessions may only push to their own
+# working branch (named claude/...). When such a push passes every check, the
+# `promote` job fast-forwards main to it and `release` publishes a signed preview,
+# so installed copies of MOTIX update themselves. Pushes to main directly are
+# released the same way.
+#
 # Actions are pinned to full commit SHAs (supply-chain rule, SECURITY.md §3.7).
 # Dependabot keeps the pins current.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "claude/**"]
   pull_request:
 
 permissions:
@@ -80,6 +87,14 @@ jobs:
       - name: Install the pinned Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Version for this build
+        shell: bash
+        run: |
+          base=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          if [ "${{ github.event_name }}" = "push" ] && { [ "${{ github.ref }}" = "refs/heads/main" ] || [[ "${{ github.ref }}" == refs/heads/claude/* ]]; }; then
+            # Stamped builds check GitHub for updates; see motix-update and ADR-027.
+            echo "MOTIX_VERSION=${base}-preview.${{ github.run_number }}" >> "$GITHUB_ENV"
+          fi
       - name: Build release
         run: cargo build --release --locked -p motix
       - name: Assemble developer preview
@@ -89,17 +104,119 @@ jobs:
           cp "target/release/${{ matrix.exe }}" dist/MOTIX/
           cp LICENSE dist/MOTIX/LICENSE.txt
           cat > dist/MOTIX/READ-ME-FIRST.txt <<'EOF'
-          MOTIX developer preview (milestone M1)
+          MOTIX developer preview
 
           This is an early test build, not a finished app.
           - Windows: double-click motix.exe. If Windows shows "Windows protected your PC",
             click "More info" then "Run anyway" (developer builds are not code-signed yet).
           - Linux: run ./motix
-          Drag videos, audio or images into the window. Video playback arrives in the next update.
+          Keep MOTIX in a folder you own (for example Documents\MOTIX) so it can update itself.
+          It checks for new versions when it starts and every 10 minutes (Help > Check for updates).
           MOTIX is free software under the GNU GPL v3 or later (see LICENSE.txt).
           EOF
+          cd dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a -tzip "../motix-${{ matrix.name }}.zip" MOTIX > /dev/null
+          else
+            zip -r -X -q "../motix-${{ matrix.name }}.zip" MOTIX
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: motix-${{ matrix.name }}-preview
           path: dist/MOTIX
           retention-days: 30
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.name }}
+          path: motix-${{ matrix.name }}.zip
+          retention-days: 7
+
+  # Every green push to main (or promoted claude/... branch) becomes a preview release that installed copies of MOTIX
+  # pick up automatically. The checksum list is signed with the update key
+  # (repository secret MOTIX_UPDATE_SIGNING_KEY); MOTIX refuses unsigned releases.
+  # A claude/... branch that passed everything becomes main (fast-forward only: if main
+  # has moved on since the branch was made, this fails and nothing is released).
+  promote:
+    name: Promote to main
+    needs: [test, deny, package]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/claude/')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Fast-forward main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor origin/main "$GITHUB_SHA"; then
+            echo "::error::main has changes this branch doesn't include; rebase the branch on main and push again."
+            exit 1
+          fi
+          git push origin "$GITHUB_SHA:refs/heads/main"
+          echo "main is now ${GITHUB_SHA::7}."
+
+  release:
+    name: Publish preview release
+    needs: [test, deny, package, promote]
+    # Runs after a push to main, or after a successful promote of a claude/... branch.
+    if: >-
+      !cancelled() && !failure() && github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/claude/'))
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: out
+      - name: Checksums and signature
+        env:
+          MOTIX_UPDATE_SIGNING_KEY: ${{ secrets.MOTIX_UPDATE_SIGNING_KEY }}
+        run: |
+          base=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          version="${base}-preview.${{ github.run_number }}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          cargo build --release --locked -q -p xtask
+          cd out
+          ../target/release/xtask manifest "$version" motix-*.zip
+          if [ -n "$MOTIX_UPDATE_SIGNING_KEY" ]; then
+            ../target/release/xtask sign SHA256SUMS
+          else
+            echo "::warning::The MOTIX_UPDATE_SIGNING_KEY secret isn't set, so this release is unsigned and installed copies of MOTIX won't update to it."
+          fi
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Automatic preview build from commit ${GITHUB_SHA::7}."
+            echo
+            git log -1 --format=%B
+          } > notes.txt
+          gh release create "v$VERSION" out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --title "MOTIX $VERSION (preview)" --notes-file notes.txt
+      - name: Keep only the 10 newest previews
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease,createdAt \
+            --jq '[.[] | select(.isPrerelease)] | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' |
+          while read -r tag; do
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          done

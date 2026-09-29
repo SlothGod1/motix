@@ -153,6 +153,7 @@ The OS sandbox is introduced incrementally (process isolation in Phase 1, sandbo
 ```
 crates/
   motix-core         ids (UUIDv7), time (flicks, rationals), errors, limits
+  motix-probe        memory-safe header inspection on import (MP4/MOV/MKV/WebM/WAV/PNG/JPEG) — ADR-025
   motix-schema       typed project schema over Loro, validation, normalization, migrations
   motix-project      project container (SQLite), journal, autosave, recovery, named versions
   motix-commands     edit operations (split, trim, ripple, keyframe...), undo grouping
@@ -289,7 +290,8 @@ Caches are keyed by content hashes and can be deleted at any time; the UI has "C
                                                    + color metadata (primaries, transfer, range, matrix)
 ```
 
-- **Probe** in a worker, with timeouts and memory limits. Output is a validated `MediaInfo` (streams, codecs, color metadata, VFR detection, rotation, HDR metadata).
+- **Quick probe on import** (`motix-probe`, ADR-025): pure-Rust header reading in-process — size, rotation, frame rate, VFR, duration, codecs, bit depth, colour/HDR flags, audio streams. Drives the "match project?" question and clip placement instantly.
+- **Full probe** in a worker, with timeouts and memory limits; overrides the quick probe when they disagree. Output is a validated `MediaInfo` (streams, codecs, color metadata, VFR detection, rotation, HDR metadata).
 - **Decode**: FFmpeg with hardware acceleration where available — Windows: D3D11VA/D3D12VA (all vendors), NVDEC, QSV; Linux: VAAPI, NVDEC, Vulkan Video; macOS: VideoToolbox. Automatic fallback to software decoding.
 - **HDR metadata**: static (mastering display, MaxCLL/MaxFALL), HDR10+ dynamic metadata and Dolby Vision RPUs are extracted and kept with the frames (ADR-023).
 - **Variable frame rate** media is conformed through a timestamp map, never by assuming constant frame rate.
@@ -359,6 +361,20 @@ Caches are keyed by content hashes and can be deleted at any time; the UI has "C
   - **macOS (later phase):** EDR via Metal (`ExtendedSrgbLinear` / `ExtendedDisplayP3` surfaces) — the most mature desktop HDR pipeline.
 - **Scopes** (waveform, vectorscope, histogram, false color) computed on the GPU from the output-transformed image.
 - **OpenColorIO** (BSD-3) is integrated later for studio configs and ACES; the built-in module covers the common cases without a C++ dependency in Phase 1.
+
+### 8.1 Mixed sources in one project
+
+A project can freely mix sizes, frame rates, bit depths and dynamic ranges. The **project settings decide the output**; each clip is converted on the way in:
+
+| Property | How a differing clip is handled |
+|----------|--------------------------------|
+| Size / shape | Placement mode per clip: **Scale to fit** (default), **Scale to fill** (crop), **Stretch**, **Original size**. Scaling runs on the GPU in linear light with a high-quality filter (Lanczos/bicubic for upscaling, area-averaging for downscaling). Phone rotation metadata is applied first. |
+| Frame rate | Clips play in real time at the project rate: frames are repeated or skipped by timestamp (nearest frame). Frame blending and optical-flow retiming are later options per clip. VFR sources use their timestamp map. |
+| Bit depth | Decoded at native depth (8/10/12-bit), converted to 16-bit float on the GPU. Output depth is a project setting (8 or 10; HDR forces 10). |
+| Colour / dynamic range | Each clip gets an input transform from its metadata into the linear working space (Rec.709 primaries for SDR projects, Rec.2020 for HDR projects). **SDR in an HDR project:** Rec.709 → Rec.2020 gamut conversion and SDR white placed at **203 nits (ITU-R BT.2408 reference white)** so it sits naturally next to HDR footage; optional inverse tone mapping ("expand to HDR") later. **HDR in an SDR project:** tone-mapped (BT.2390 EETF by default). |
+
+**Worked example (owner question):** an 8-bit SDR 1920×1080 clip and a 10-bit HDR10 3840×2160 clip, exported as 10-bit HDR10 UHD. Project: 3840×2160, HDR10, 10-bit. The HDR10 clip passes through untouched (PQ → linear → PQ). The SDR clip is upscaled 2× with a high-quality filter, converted from Rec.709 to Rec.2020, and mapped so its white is 203 nits. Export: HEVC Main10 (x265) or AV1 10-bit with PQ transfer, Rec.2020 primaries and HDR10 static metadata (mastering display, MaxCLL/MaxFALL computed from the actual frames). The SDR footage looks exactly as it did — it can't gain highlight detail it never recorded — while the HDR footage keeps its full range.
+
 
 ---
 
@@ -687,6 +703,9 @@ trait UpdateProvider {            // where bytes come from — not whether to tr
 ```
 
 ### 15.3 Client updater
+
+> **Implemented now (preview channel, ADR-027):** `motix-update` checks GitHub Releases at start-up and every 10 minutes, downloads in the background, verifies an Ed25519-signed `SHA256SUMS`, and installs on restart (or on close) by swapping files with rollback. The TUF/launcher design below supersedes it before public 1.0.
+
 
 Install layout (per user, no admin rights needed to update):
 

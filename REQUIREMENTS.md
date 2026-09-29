@@ -35,6 +35,15 @@ Derived from the product specification and [ANALYSIS.md](ANALYSIS.md). IDs are s
 | R-EDT-8 | Export presets for TikTok, Reels, Shorts, YouTube, X, Discord; custom export with precise codec/container/bitrate/color/audio settings. | ⚖️ | 1–3 |
 | R-EDT-9 | Speed changes and freeze frames. | | 3 |
 | R-EDT-10 | Variable-frame-rate media handled correctly (no A/V drift). | | 1 |
+| R-EDT-11 | **No fixed track layout**: unlimited video and audio tracks, created automatically as clips need them or added/removed by the user. *(Owner request 2026-09-27; model + UI done in preview 2.)* | | 1 |
+| R-EDT-12 | **Linked audio/video on import** (like DaVinci Resolve): a video with sound becomes one picture clip plus one audio clip per audio stream, linked so they move/split/delete together; unlink (Ctrl+L) to edit them separately, relink any clips. *(Owner request; done in preview 2.)* | | 1 |
+| R-EDT-13 | **Project size in pixels (W×H)** typed freely (even numbers, 16–16384), with optional presets and swap-orientation; **frame rate typed freely** (whole, decimal, fraction; NTSC shorthand like 29.97 maps to the exact 30000/1001). *(Owner request; done in preview 2.)* | | 1 |
+| R-EDT-14 | **"Match project to this video?"** asked once, when the first video lands on an empty timeline, listing the differences (size, frame rate, HDR colour); also available any time from the media's menu. *(Owner request; done in preview 2.)* | | 1 |
+| R-EDT-15 | **Mixed sizes and shapes**: every clip has a placement mode — Scale to fit (default), Scale to fill (crop), Stretch, Original size — with a project-wide default and per-clip override; the viewer shows exactly where the picture lands. *(Owner request; done in preview 2 as placeholders until decoding.)* | | 1 |
+| R-EDT-16 | **Mixed formats in one project** (e.g. 8-bit SDR 1080p + 10-bit HDR10 4K → 10-bit HDR10 4K export): every source is converted into the project's floating-point working space with its own input transform; SDR is placed at HDR reference white (203 nits, ITU-R BT.2408); scaling uses high-quality filters; output bit depth/colour are project settings (HDR forces ≥10-bit). See ARCHITECTURE §8.1. | ⚡ | 1, 7 |
+| R-EDT-18 | **Tracks in the order media is added, named after files** (owner request 2026-09-27): no "Video 1–4 / Audio 1–2" grouping. Adding a video with sound, then a song, then another video gives: *video file*, *Audio of video file*, *song*, *second video*, *Audio of second video* — top to bottom. Tracks can be renamed (double-click), moved up/down, hidden/muted, soloed and locked; higher video tracks are in front. *(Done in preview 3, ADR-028.)* | | 1 |
+| R-EDT-19 | **DaVinci Resolve-style timeline**: large timecode, Select (A) and Blade (B) tools, snapping (N), linked selection (Ctrl+Shift+L), trim by dragging clip edges (linked clips follow), markers (M) with colours and names, previous/next edit (Up/Down) and marker (Shift+Up/Down), adjustable track height, lock/eye/M/S track buttons. *(Done in preview 3.)* | | 1 |
+| R-EDT-17 | Fast, memory-safe **header inspection on import** (size, rotation, frame rate, VFR, duration, codecs, bit depth, colour/HDR signalling, audio streams) for MP4/MOV/MKV/WebM/WAV/PNG/JPEG without decoding. *(Done in preview 2, `motix-probe`, ADR-025.)* | 🔒 | 1 |
 
 ### Quality and color
 | ID | Requirement | Tags | Phase |
@@ -67,6 +76,8 @@ Derived from the product specification and [ANALYSIS.md](ANALYSIS.md). IDs are s
 | R-UPD-5 | Update source abstracted behind `UpdateProvider`; GitHub is the first implementation. | | 2 |
 | R-UPD-6 | Server updates: optional automatic, scheduled window or admin approval; pre-update snapshot; rollback. | 🔒 | 5 |
 | R-UPD-7 | Windows binaries Authenticode-signed before public release (OD-3). | ⚖️🖥️ | 2 |
+| R-UPD-8 | **Owner request 2026-09-27:** MOTIX checks GitHub **when it starts and every 10 minutes**, downloads a newer version **in the background without asking**, verifies it, then asks "restart now or later" (Later = install when MOTIX closes). **Help > Check for updates…** checks on demand and has the automatic on/off switch. *(Done in preview 3 — `motix-update`, ADR-027.)* | 🔒 | 1 |
+| R-UPD-9 | Every green push to `main` publishes a signed preview release (Windows + Linux zips, `SHA256SUMS` with pinned version, Ed25519 signature); the 10 newest previews are kept. Unsigned or tampered releases are never installed. *(Done in preview 3.)* | 🔒 | 1 |
 
 ### Collaboration, identity, server
 | ID | Requirement | Tags | Phase |

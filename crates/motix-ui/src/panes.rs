@@ -46,7 +46,7 @@ pub(crate) fn default_layout() -> egui_tiles::Tree<Pane> {
         l.shares.set_share(inspector_tabs, 0.9);
     }
     if let Some(egui_tiles::Tile::Container(egui_tiles::Container::Linear(l))) = tiles.get_mut(root) {
-        l.shares.set_share(top, 1.8);
+        l.shares.set_share(top, 1.5);
         l.shares.set_share(timeline_tabs, 1.0);
     }
     egui_tiles::Tree::new("motix_workspace", root, tiles)
@@ -71,8 +71,10 @@ impl egui_tiles::Behavior<Pane> for Behavior<'_> {
         match pane {
             Pane::Media => media_panel::show(&mut content, self.state, &mut self.actions),
             Pane::Viewer => viewer::show(&mut content, self.state, &mut self.actions),
-            Pane::Inspector => inspector::show(&mut content, self.state, &mut self.actions),
-            Pane::Timeline => timeline::show(&mut content, self.state, self.ui_state),
+            Pane::Inspector => {
+                inspector::show(&mut content, self.state, &mut self.ui_state.settings, &mut self.actions);
+            }
+            Pane::Timeline => timeline::show(&mut content, self.state, self.ui_state, &mut self.actions),
         }
         egui_tiles::UiResponse::None
     }

@@ -1,0 +1,14 @@
+[package]
+name = "motix-probe"
+description = "Fast, memory-safe inspection of media files (MP4/MOV, Matroska/WebM, WAV, PNG, JPEG): size, frame rate, duration, streams and HDR signalling."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+motix-core.workspace = true
+
+[lints]
+workspace = true

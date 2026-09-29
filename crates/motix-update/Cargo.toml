@@ -1,0 +1,21 @@
+[package]
+name = "motix-update"
+description = "Signed automatic updates for MOTIX from GitHub Releases: check, background download, verify, install on restart."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ureq.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+semver.workspace = true
+sha2.workspace = true
+ed25519-dalek.workspace = true
+zip.workspace = true
+
+[lints]
+workspace = true

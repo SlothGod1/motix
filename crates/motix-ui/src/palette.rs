@@ -2,7 +2,7 @@
 
 use crate::theme;
 use motix_app::Action;
-use motix_app::actions::{self, Availability};
+use motix_app::actions;
 
 #[derive(Default)]
 pub(crate) struct Palette {
@@ -47,6 +47,7 @@ impl Palette {
                     .hint_text("Type a command…")
                     .desired_width(f32::INFINITY),
             );
+            edit.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Search commands"));
             if self.focus_pending {
                 edit.request_focus();
                 self.focus_pending = false;
@@ -60,8 +61,8 @@ impl Palette {
             }
             for (i, info) in results.iter().take(12).enumerate() {
                 let mut text = egui::RichText::new(info.label);
-                if let Availability::Planned(m) = info.availability {
-                    text = egui::RichText::new(format!("{}  ({m})", info.label)).color(theme::TEXT_WEAK);
+                if let Some(note) = info.availability.note() {
+                    text = egui::RichText::new(format!("{}  ({note})", info.label)).color(theme::TEXT_WEAK);
                 }
                 let mut button = egui::Button::new(text)
                     .selected(i == self.selected)

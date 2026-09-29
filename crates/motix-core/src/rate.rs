@@ -177,6 +177,110 @@ impl FrameRate {
             Time::from_flicks(i64::try_from(d).unwrap_or(i64::MAX))
         })
     }
+
+    /// Parses a frame rate the way a person types it.
+    ///
+    /// Accepts whole numbers (`"30"`), decimals (`"12.5"`, `"29.97"`), fractions
+    /// (`"30000/1001"`) and an optional `fps` suffix. Decimals that are the usual
+    /// shorthand for the NTSC family (`23.976`, `23.98`, `29.97`, `47.952`, `59.94`,
+    /// `119.88`, `239.76`) become the exact `N×1000/1001` rate that cameras and phones
+    /// actually record, so "29.97" matches phone footage frame-for-frame.
+    ///
+    /// # Errors
+    /// [`CoreError::Parse`] for text that is not a number, and the errors of
+    /// [`FrameRate::new`] for rates outside the allowed range.
+    pub fn parse_user(text: &str) -> Result<Self, CoreError> {
+        let parse_err = CoreError::Parse { what: "frame rate" };
+        let t = text.trim();
+        let t = t
+            .strip_suffix("fps")
+            .or_else(|| t.strip_suffix("FPS"))
+            .unwrap_or(t)
+            .trim();
+        if t.is_empty() || t.len() > 32 {
+            return Err(parse_err);
+        }
+        if t.contains('/') {
+            return Self::new(t.parse::<Rational>().map_err(|_| parse_err)?);
+        }
+        let (whole, frac) = t.split_once(['.', ',']).unwrap_or((t, ""));
+        let digits_ok = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
+        if (whole.is_empty() && frac.is_empty()) || !digits_ok(whole) || !digits_ok(frac) || frac.len() > 6 {
+            return Err(parse_err);
+        }
+        let scale = 10_i64.pow(u32::try_from(frac.len()).map_err(|_| parse_err.clone())?);
+        let whole_v: i64 = if whole.is_empty() {
+            0
+        } else {
+            whole.parse().map_err(|_| parse_err.clone())?
+        };
+        let frac_v: i64 = if frac.is_empty() {
+            0
+        } else {
+            frac.parse().map_err(|_| parse_err.clone())?
+        };
+        let typed = Rational::from_i128(
+            i128::from(whole_v) * i128::from(scale) + i128::from(frac_v),
+            i128::from(scale),
+        )?;
+        if frac.len() >= 2 {
+            for base in [24_i64, 30, 48, 60, 120, 240] {
+                let ntsc = Rational::new_const(base * 1000, 1001);
+                // The typed decimal is the NTSC rate rounded to the digits typed.
+                let diff = typed.checked_sub(ntsc)?;
+                let scaled = diff.checked_mul(Rational::from_integer(2 * scale))?;
+                if scaled.num().unsigned_abs() < scaled.den().unsigned_abs() {
+                    return Self::new(ntsc);
+                }
+            }
+        }
+        Self::new(typed)
+    }
+
+    /// Interprets a rate measured from a media file (`num/den` frames per second).
+    ///
+    /// Containers often store slightly rounded timing (for example 33,366,667 ns per
+    /// frame for 29.97 fps). A measurement within 0.05 % of a [common](Self::COMMON)
+    /// rate is taken to be that rate; anything else is kept as measured (with the
+    /// denominator reduced to at most 1000 if needed).
+    ///
+    /// # Errors
+    /// The errors of [`FrameRate::new`] for rates outside the allowed range.
+    pub fn from_measured(num: i64, den: i64) -> Result<Self, CoreError> {
+        let measured = Rational::new(num, den)?;
+        if !measured.is_positive() {
+            return Err(CoreError::OutOfRange {
+                what: "frame rate",
+                allowed: "greater than 0",
+            });
+        }
+        let m = measured.to_f64();
+        for rate in Self::COMMON {
+            let s = rate.fps_f64();
+            if ((m - s) / s).abs() < 0.0005 {
+                return Ok(rate);
+            }
+        }
+        if measured.den() <= MAX_RATE_DENOMINATOR {
+            return Self::new(measured);
+        }
+        let thousandths = div_round(
+            i128::from(measured.num()) * 1000,
+            i128::from(measured.den()),
+            Rounding::Nearest,
+        );
+        Self::new(Rational::from_i128(thousandths, 1000)?)
+    }
+
+    /// Short plain form for text fields: `"30"`, `"29.97"`, `"23.976"`, `"12.5"`.
+    #[must_use]
+    pub fn short_label(self) -> String {
+        if self.0.den() == 1 {
+            return self.0.num().to_string();
+        }
+        let s = format!("{:.3}", self.fps_f64());
+        s.trim_end_matches('0').trim_end_matches('.').to_owned()
+    }
 }
 
 impl fmt::Display for FrameRate {
@@ -269,6 +373,73 @@ impl fmt::Display for SampleRate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_what_people_type() {
+        let p = |s: &str| FrameRate::parse_user(s).unwrap();
+        assert_eq!(p("30"), FrameRate::FPS_30);
+        assert_eq!(p(" 60 fps "), FrameRate::FPS_60);
+        assert_eq!(p("29.97"), FrameRate::FPS_29_97);
+        assert_eq!(p("29,97"), FrameRate::FPS_29_97);
+        assert_eq!(p("23.976"), FrameRate::FPS_23_976);
+        assert_eq!(p("23.98"), FrameRate::FPS_23_976);
+        assert_eq!(p("59.94"), FrameRate::FPS_59_94);
+        assert_eq!(p("119.88"), FrameRate::FPS_119_88);
+        assert_eq!(p("30000/1001"), FrameRate::FPS_29_97);
+        assert_eq!(p("60.00"), FrameRate::FPS_60);
+        assert_eq!(p("12.5"), FrameRate::from_fraction(25, 2).unwrap());
+        assert_eq!(
+            p("29.9"),
+            FrameRate::from_fraction(299, 10).unwrap(),
+            "one digit is not NTSC shorthand"
+        );
+        assert_eq!(p("15"), FrameRate::from_fraction(15, 1).unwrap());
+        for bad in [
+            "",
+            "abc",
+            "-30",
+            "0",
+            "1.2.3",
+            "1e3",
+            "30 frames",
+            "1001",
+            "0.0000001",
+            ".",
+        ] {
+            assert!(FrameRate::parse_user(bad).is_err(), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn measured_rates_snap_to_standards() {
+        // Matroska stores 29.97 fps as 33,366,667 ns per frame.
+        assert_eq!(
+            FrameRate::from_measured(1_000_000_000, 33_366_667).unwrap(),
+            FrameRate::FPS_29_97
+        );
+        assert_eq!(
+            FrameRate::from_measured(1_000_000_000, 41_708_333).unwrap(),
+            FrameRate::FPS_23_976
+        );
+        assert_eq!(FrameRate::from_measured(90_000, 3_000).unwrap(), FrameRate::FPS_30);
+        assert_eq!(
+            FrameRate::from_measured(15, 1).unwrap(),
+            FrameRate::from_fraction(15, 1).unwrap()
+        );
+        // Far from any standard and with a huge denominator: kept, rounded to 1/1000.
+        let odd = FrameRate::from_measured(1_000_000_000, 70_000_001).unwrap();
+        assert_eq!(odd.as_rational(), Rational::new_const(7_143, 500));
+        assert!(FrameRate::from_measured(0, 1).is_err());
+        assert!(FrameRate::from_measured(5_000, 1).is_err());
+    }
+
+    #[test]
+    fn short_labels() {
+        assert_eq!(FrameRate::FPS_30.short_label(), "30");
+        assert_eq!(FrameRate::FPS_29_97.short_label(), "29.97");
+        assert_eq!(FrameRate::FPS_23_976.short_label(), "23.976");
+        assert_eq!(FrameRate::from_fraction(25, 2).unwrap().short_label(), "12.5");
+    }
 
     #[test]
     fn all_common_rates_are_exact() {

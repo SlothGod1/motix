@@ -96,6 +96,8 @@ credit given unless you prefer otherwise.
 - Dependencies: `Cargo.lock` committed; `cargo-deny` (licenses, banned crates, duplicate versions, advisories) and `cargo-audit` on every PR; new dependencies require a short justification in the PR; SBOM (CycloneDX) attached to each release; build provenance attestations.
 - FFmpeg and other C/C++ dependencies built from pinned, hash-verified source archives.
 
+**Update signing (preview channel, ADR-027).** Releases are accepted only if `SHA256SUMS` carries a valid Ed25519 signature from a key compiled into MOTIX and names the exact release version; the download must match its signed SHA-256. The secret key lives only in the `MOTIX_UPDATE_SIGNING_KEY` GitHub Actions secret (available to pushes on `main`, never to pull requests) plus one offline backup held by the owner. If the key leaks: remove the secret, generate a new pair (`cargo run -p xtask -- keygen`), ship a release trusting only the new key, and announce it. Zip extraction rejects absolute paths, `..`, and the updater's own folder; sizes and entry counts are bounded; files are swapped with rollback.
+
 ### 3.8 AI models
 - Only ONNX/GGUF formats (no pickle / arbitrary code deserialization).
 - Pinned hashes in TUF-signed catalog; downloaded over HTTPS and verified; inference in `motix-ai-worker` with the same sandboxing as media workers.
