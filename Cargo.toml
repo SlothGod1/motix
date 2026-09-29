@@ -1,0 +1,47 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+motix-core = { path = "crates/motix-core" }
+motix-probe = { path = "crates/motix-probe" }
+motix-app = { path = "crates/motix-app" }
+motix-ui = { path = "crates/motix-ui" }
+motix-update = { path = "crates/motix-update" }
+eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "accesskit", "default_fonts", "wayland", "x11"] }
+egui = "0.36.2"
+egui_tiles = "0.17.1"
+egui_kittest = { version = "0.36.2", features = ["wgpu", "snapshot"] }
+rfd = "0.17.2"
+# Updates (motix-update, xtask): HTTPS with the OS certificate store, signatures, archives.
+ureq = { version = "3.4.2", default-features = false, features = ["rustls-no-provider", "platform-verifier", "gzip"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+semver = "1.0.28"
+sha2 = "0.11.0"
+ed25519-dalek = "3.0.0"
+getrandom = "0.3"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+dirs = "7.0.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

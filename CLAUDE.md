@@ -12,7 +12,10 @@ Two routes, both ending in the same automatic CI → signed release (ADR-027, AD
   `B:\Family\Andrew Cardone\Creation\Editing Software\motix` through the file bridge. The owner
   commits and clicks **Push origin** in GitHub Desktop. The bridge can't write into `.github\`: put
   workflow changes in `Editing Software\_github\` and ask the owner to copy them over. It can't delete
-  files either: list deletions for the owner.
+  files either: list deletions for the owner. It adds C2PA metadata to media files (MP4, MOV, M4A,
+  WAV, PNG, JPEG) in transit, so never deliver byte-exact media through it. Before asking the
+  owner to push, list the clone (`device_list_dir`) and check every file you meant to write arrived
+  (a missing `Cargo.toml` once broke the build).
 - **Claude Code session with the repo attached:** push only to the session's working branch
   (`claude/...`); CI's `promote` job fast-forwards `main` when every check passes.
 
