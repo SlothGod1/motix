@@ -48,6 +48,9 @@ pub enum Request {
     InstallUpdateOnExit,
     /// Turn automatic update checks on or off.
     SetAutoCheck(bool),
+    /// Ask for a folder and set up a shared copy of MOTIX in it (Help > Share MOTIX
+    /// on your network…); report back through [`MotixUi::set_update_info`].
+    ShareOnNetwork,
 }
 
 /// Transient UI-only state (never part of the project document).
@@ -144,6 +147,10 @@ impl MotixUi {
             Outcome::CheckForUpdates => {
                 self.ui_state.updates.open = true;
                 self.requests.push(Request::CheckForUpdates);
+            }
+            Outcome::ShareOnNetwork => {
+                self.ui_state.updates.open = true;
+                self.requests.push(Request::ShareOnNetwork);
             }
         }
     }

@@ -77,6 +77,7 @@ Derived from the product specification and [ANALYSIS.md](ANALYSIS.md). IDs are s
 | R-UPD-6 | Server updates: optional automatic, scheduled window or admin approval; pre-update snapshot; rollback. | 🔒 | 5 |
 | R-UPD-7 | Windows binaries Authenticode-signed before public release (OD-3). | ⚖️🖥️ | 2 |
 | R-UPD-8 | **Owner request 2026-09-27:** MOTIX checks GitHub **when it starts and every 10 minutes**, downloads a newer version **in the background without asking**, verifies it, then asks "restart now or later" (Later = install when MOTIX closes). **Help > Check for updates…** checks on demand and has the automatic on/off switch. *(Done in preview 3 — `motix-update`, ADR-027.)* | 🔒 | 1 |
+| R-UPD-10 | **Owner request 2026-09-29:** MOTIX can run **from a shared folder on the home network**; Help > *Share MOTIX on your network…* sets it up. New versions are installed into the shared folder once for every PC (from GitHub, or a signed release copied into its `updates` folder) without disturbing PCs that have it open. *(Done — ADR-031.)* | 🔒 | 1 |
 | R-UPD-9 | Every green push to `main` publishes a signed preview release (Windows + Linux zips, `SHA256SUMS` with pinned version, Ed25519 signature); the 10 newest previews are kept. Unsigned or tampered releases are never installed. *(Done in preview 3.)* | 🔒 | 1 |
 
 ### Collaboration, identity, server

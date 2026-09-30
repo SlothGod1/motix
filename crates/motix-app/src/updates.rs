@@ -32,6 +32,14 @@ pub enum UpdatePhase {
         /// Release notes (plain text, possibly empty).
         notes: String,
     },
+    /// Already installed in the shared folder (by this PC or another); restarting
+    /// MOTIX switches to it.
+    Installed {
+        /// Version installed.
+        version: String,
+        /// Release notes (plain text, possibly empty).
+        notes: String,
+    },
     /// Replacing the program files.
     Installing,
     /// Something went wrong; the current version keeps working.
@@ -39,6 +47,17 @@ pub enum UpdatePhase {
         /// What happened, in plain language.
         message: String,
     },
+}
+
+/// Sharing MOTIX with other PCs on the network (Help > Share MOTIX on your network…).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SharingInfo {
+    /// The shared folder this copy runs from, if it runs from one.
+    pub running_from: Option<String>,
+    /// The result of the last "share" attempt: the folder, or what went wrong.
+    pub last_result: Option<Result<String, String>>,
+    /// This PC's network name (for the instructions), when known.
+    pub pc_name: Option<String>,
 }
 
 /// Update information shown in the UI.
@@ -54,6 +73,10 @@ pub struct UpdateInfo {
     pub last_checked: Option<String>,
     /// The ready update will be installed when MOTIX closes.
     pub install_on_exit: bool,
+    /// Where updates come from, in plain language.
+    pub source_text: String,
+    /// Network sharing.
+    pub sharing: SharingInfo,
 }
 
 impl Default for UpdateInfo {
@@ -64,6 +87,8 @@ impl Default for UpdateInfo {
             auto_check: true,
             last_checked: None,
             install_on_exit: false,
+            source_text: String::new(),
+            sharing: SharingInfo::default(),
         }
     }
 }
@@ -78,6 +103,7 @@ impl UpdateInfo {
                 _ => format!("Downloading update {version}…"),
             }),
             UpdatePhase::Ready { version, .. } => Some(format!("Update {version} ready")),
+            UpdatePhase::Installed { version, .. } => Some(format!("Restart to use MOTIX {version}")),
             UpdatePhase::Installing => Some("Installing update…".to_owned()),
             _ => None,
         }

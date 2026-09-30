@@ -3,7 +3,9 @@
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use motix_app::{Action, ColorOutput, MediaId, MediaItem, MediaKind, Resolution, TrackKind, UpdateInfo, UpdatePhase};
+use motix_app::{
+    Action, ColorOutput, MediaId, MediaItem, MediaKind, Resolution, SharingInfo, TrackKind, UpdateInfo, UpdatePhase,
+};
 use motix_core::FrameRate;
 use motix_ui::{MotixUi, Request};
 use std::path::{Path, PathBuf};
@@ -390,6 +392,57 @@ fn help_menu_opens_updates_and_banner_offers_restart() {
 }
 
 #[test]
+fn sharing_on_the_network_and_shared_updates() {
+    let mut h = harness();
+    h.state_mut().perform(Action::ShareOnNetwork);
+    h.run();
+    assert!(h.state().updates_window_open());
+    assert_eq!(h.state_mut().take_requests(), vec![Request::ShareOnNetwork]);
+    let mut info = UpdateInfo {
+        sharing: SharingInfo {
+            last_result: Some(Ok(r"B:\Family\MOTIX".into())),
+            pc_name: Some("ANDREWSNEWSERVER".into()),
+            ..SharingInfo::default()
+        },
+        ..UpdateInfo::default()
+    };
+    h.state_mut().set_update_info(info.clone());
+    h.run();
+    h.get_by_label(r"MOTIX is ready in B:\Family\MOTIX.");
+    assert!(
+        h.query_by_label_contains(r"\\ANDREWSNEWSERVER\MOTIX\MOTIX.exe")
+            .is_some(),
+        "tells the user the exact network path"
+    );
+    h.get_by_label("Choose a folder to share MOTIX from…").click();
+    h.run();
+    assert_eq!(h.state_mut().take_requests(), vec![Request::ShareOnNetwork]);
+
+    // A copy running from the shared folder: a new version was installed there.
+    info.sharing = SharingInfo {
+        running_from: Some(r"\\ANDREWSNEWSERVER\MOTIX".into()),
+        ..SharingInfo::default()
+    };
+    info.phase = UpdatePhase::Installed {
+        version: "0.2.0-preview.9".into(),
+        notes: String::new(),
+    };
+    h.state_mut().set_update_info(info);
+    h.run();
+    assert!(h.query_by_label("Choose a folder to share MOTIX from…").is_none());
+    h.get_by_label("MOTIX 0.2.0-preview.9 is installed. Restart to use it.");
+    h.get_all_by_label("Restart now").next().unwrap().click();
+    h.run();
+    assert_eq!(h.state_mut().take_requests(), vec![Request::InstallUpdateNow]);
+    h.get_by_label("Later").click();
+    h.run();
+    assert!(
+        h.query_by_label("MOTIX 0.2.0-preview.9 is installed. Restart to use it.")
+            .is_none()
+    );
+}
+
+#[test]
 fn unavailable_features_say_so_plainly() {
     let mut h = harness();
     h.state_mut().perform(Action::Export);
@@ -473,4 +526,38 @@ fn screenshots() {
     h2.state_mut().perform(Action::CheckForUpdates);
     h2.run();
     h2.render().unwrap().save(out.join("05-updates.png")).unwrap();
+
+    let info = UpdateInfo {
+        current_version: "0.1.0-preview.14".into(),
+        phase: UpdatePhase::Installed {
+            version: "0.1.0-preview.15".into(),
+            notes: "Run MOTIX from a shared folder on your network".into(),
+        },
+        last_checked: Some("just now".into()),
+        source_text: "New versions come from the official MOTIX releases on GitHub, or from a release copied into \
+                      the shared folder's 'updates' folder."
+            .into(),
+        sharing: SharingInfo {
+            running_from: Some(r"\\ANDREWSNEWSERVER\MOTIX".into()),
+            ..SharingInfo::default()
+        },
+        ..UpdateInfo::default()
+    };
+    h2.state_mut().set_update_info(info);
+    h2.run();
+    h2.render().unwrap().save(out.join("06-shared-updates.png")).unwrap();
+
+    let info = UpdateInfo {
+        current_version: "0.1.0-preview.14".into(),
+        phase: UpdatePhase::UpToDate,
+        sharing: SharingInfo {
+            last_result: Some(Ok(r"B:\Family\Andrew Cardone\MOTIX".into())),
+            pc_name: Some("ANDREWSNEWSERVER".into()),
+            ..SharingInfo::default()
+        },
+        ..UpdateInfo::default()
+    };
+    h2.state_mut().set_update_info(info);
+    h2.run();
+    h2.render().unwrap().save(out.join("07-share-done.png")).unwrap();
 }

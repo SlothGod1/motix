@@ -29,6 +29,8 @@ pub enum Outcome {
     Quit,
     /// The host should check for updates now and show the updates window.
     CheckForUpdates,
+    /// The host should ask for a folder and set up a shared copy of MOTIX there.
+    ShareOnNetwork,
     /// Not in this build yet.
     NotYet {
         /// Action label.
@@ -287,6 +289,7 @@ impl AppState {
             Action::About => return Outcome::ShowAbout,
             Action::Quit => return Outcome::Quit,
             Action::CheckForUpdates => return Outcome::CheckForUpdates,
+            Action::ShareOnNetwork => return Outcome::ShareOnNetwork,
             Action::ToolSelect => {
                 self.tool = Tool::Select;
                 self.status = "Selection tool — click to select, drag to move, drag clip edges to trim.".to_owned();

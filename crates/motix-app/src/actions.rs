@@ -51,8 +51,10 @@ pub enum Action {
     PreviousMarker,
     /// Jump to the next marker (Shift+Down).
     NextMarker,
-    /// Check GitHub for a newer version of MOTIX.
+    /// Check for a newer version of MOTIX.
     CheckForUpdates,
+    /// Put a copy of MOTIX in a shared folder that PCs on the network run it from.
+    ShareOnNetwork,
     /// Add an empty video track.
     AddVideoTrack,
     /// Add an empty audio track.
@@ -478,6 +480,13 @@ pub const ALL: &[ActionInfo] = &[
         Soon,
     ),
     info(Action::CheckForUpdates, "Check for updates…", "Help", None, Now),
+    info(
+        Action::ShareOnNetwork,
+        "Share MOTIX on your network…",
+        "Help",
+        None,
+        Now,
+    ),
     info(Action::About, "About MOTIX", "Help", None, Now),
 ];
 
@@ -573,6 +582,7 @@ mod tests {
             Action::PreviousMarker,
             Action::NextMarker,
             Action::CheckForUpdates,
+            Action::ShareOnNetwork,
             Action::AddVideoTrack,
             Action::AddAudioTrack,
             Action::MatchProjectToMedia,

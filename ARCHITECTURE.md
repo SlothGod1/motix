@@ -705,6 +705,8 @@ trait UpdateProvider {            // where bytes come from — not whether to tr
 ### 15.3 Client updater
 
 > **Implemented now (preview channel, ADR-027):** `motix-update` checks GitHub Releases at start-up and every 10 minutes, downloads in the background, verifies an Ed25519-signed `SHA256SUMS`, and installs on restart (or on close) by swapping files with rollback. The TUF/launcher design below supersedes it before public 1.0.
+>
+> **Shared network folder (ADR-031):** a shared MOTIX already uses the `versions\` + launcher layout below (the launcher is a copy of `motix.exe` at the top of the folder; `versions\current` plays the role of `state.json`). Updates are installed into the share once for every PC.
 
 
 Install layout (per user, no admin rights needed to update):

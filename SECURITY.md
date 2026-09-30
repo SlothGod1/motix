@@ -98,6 +98,8 @@ credit given unless you prefer otherwise.
 
 **Update signing (preview channel, ADR-027).** Releases are accepted only if `SHA256SUMS` carries a valid Ed25519 signature from a key compiled into MOTIX and names the exact release version; the download must match its signed SHA-256. The secret key lives only in the `MOTIX_UPDATE_SIGNING_KEY` GitHub Actions secret (available to pushes on `main`, never to pull requests) plus one offline backup held by the owner. If the key leaks: remove the secret, generate a new pair (`cargo run -p xtask -- keygen`), ship a release trusting only the new key, and announce it. Zip extraction rejects absolute paths, `..`, and the updater's own folder; sizes and entry counts are bounded; files are swapped with rollback.
 
+**Shared network folder (ADR-031).** Versions are verified exactly as above before MOTIX installs them into a shared folder, and a version folder is never modified after it's written. The launcher starts whatever `versions\current` names, so write access to the share must be limited to trusted people (like any shared program folder); per-user settings and projects are never stored there. Version names are parsed as version numbers (no path separators), archives are unpacked with the same path checks, and old versions are only deleted after a rename proves no PC is running them.
+
 ### 3.8 AI models
 - Only ONNX/GGUF formats (no pickle / arbitrary code deserialization).
 - Pinned hashes in TUF-signed catalog; downloaded over HTTPS and verified; inference in `motix-ai-worker` with the same sandboxing as media workers.

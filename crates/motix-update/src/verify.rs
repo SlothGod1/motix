@@ -59,6 +59,19 @@ pub fn verify_signature(sums: &[u8], sig_file: &[u8], keys: &[[u8; 32]]) -> Resu
     Err(UpdateError::BadSignature)
 }
 
+/// The version a (verified) manifest is for, from its first line.
+///
+/// # Errors
+/// [`UpdateError::BadManifest`] if the version line is missing or malformed.
+pub fn manifest_version(sums: &[u8]) -> Result<semver::Version, UpdateError> {
+    let text = std::str::from_utf8(sums).map_err(|_| UpdateError::BadManifest("not text"))?;
+    text.lines()
+        .next()
+        .and_then(|l| l.trim().strip_prefix("# motix-version "))
+        .and_then(|v| semver::Version::parse(v.trim()).ok())
+        .ok_or(UpdateError::BadManifest("it doesn't say which version it is"))
+}
+
 /// Reads the signed manifest: checks it's for `version` and returns the SHA-256 of `file`.
 ///
 /// # Errors
@@ -143,5 +156,10 @@ pub(crate) mod tests {
             "version pinned"
         );
         assert!(expected_hash(sums.as_bytes(), "0.2.0-preview.3", "missing.zip").is_err());
+        assert_eq!(
+            manifest_version(sums.as_bytes()).unwrap().to_string(),
+            "0.2.0-preview.3"
+        );
+        assert!(manifest_version(b"no version line").is_err());
     }
 }

@@ -28,4 +28,4 @@ pub use state::{AppState, MatchOffer, Outcome};
 pub use timeline::{
     Clip, ClipId, ClipSource, Edge, EditError, Marker, MarkerColor, MarkerId, Timeline, Track, TrackId, TrackKind,
 };
-pub use updates::{UpdateInfo, UpdatePhase};
+pub use updates::{SharingInfo, UpdateInfo, UpdatePhase};

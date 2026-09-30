@@ -1,24 +1,25 @@
 # MOTIX — Current status and hand-off
 
-Last updated: 2026-09-28
+Last updated: 2026-09-29
 
 ## Where things stand
-- On GitHub `main`: this commit (preview 3 + automatic delivery), once pushed from a Claude Code session.
-- Preview 3: tracks named after files in the order added (ADR-028); DaVinci Resolve-style timeline
-  (Select/Blade, snapping, linked selection, edge trims, markers, edit jumps, track height, lock/solo/mute);
-  signed automatic updates `motix-update` + `xtask` (ADR-027); CI promotes green `claude/**` branches to
-  `main` and publishes a signed preview release (ADR-029). 108 automated tests.
+- On GitHub `main`: preview 3 + fixes; first signed release `v0.1.0-preview.3` exists (the signing secret is set).
+- This change: **shared network folder** (ADR-031). Help > *Share MOTIX on your network…* copies MOTIX into
+  an empty folder with a launcher (`MOTIX.exe` = a copy of MOTIX that starts `versions\<current>\motix.exe`).
+  PCs run `\\PC\<share>\MOTIX.exe`; updates (GitHub, or a signed release in the share's `updates\`) are
+  installed into the share once and picked up on each PC's next start. 116 automated tests.
 - Update-signing public key compiled into MOTIX: `7764ad35…526b`. The secret key is only in the
-  `MOTIX_UPDATE_SIGNING_KEY` Actions secret (owner adds it) and the owner's private backup.
+  `MOTIX_UPDATE_SIGNING_KEY` Actions secret and the owner's private backup.
+- Claude's sandbox can't build Windows programs (Rust's Windows parts and linkers are blocked by its network
+  policy), so Windows builds come from GitHub's CI.
 
 ## Next steps
-1. Confirm the first push: CI green → `promote` → first signed release. If the secret is missing, the
-   release step warns and installed copies refuse the release — ask the owner to add the secret.
-2. Owner downloads MOTIX once from the Releases page; later versions install themselves. Confirm an
-   end-to-end self-update on the owner's Windows PC.
-3. M1 remainder: FFmpeg media worker → real video frames in the viewer + audio playback (+ waveforms);
+1. Owner: download the newest release once, run `motix.exe`, Help > Share MOTIX on your network…, pick an
+   empty folder, share it in Windows (Read/Write for trusted people), start `\\PC\<share>\MOTIX.exe` on the
+   other PCs.
+2. M1 remainder: FFmpeg media worker → real video frames in the viewer + audio playback (+ waveforms);
    HDR display check.
-4. M2: project save + crash recovery, export (vertical MP4), S0-CRDT spike.
+3. M2: project save + crash recovery, export (vertical MP4), S0-CRDT spike.
 
 ## Environment notes
 - Local builds are developer builds (`0.1.0-dev`, updates off). Set `MOTIX_VERSION` at build time to stamp.
