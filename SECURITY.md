@@ -100,6 +100,10 @@ credit given unless you prefer otherwise.
 
 **Shared network folder (ADR-031).** Versions are verified exactly as above before MOTIX installs them into a shared folder, and a version folder is never modified after it's written. The launcher starts whatever `versions\current` names, so write access to the share must be limited to trusted people (like any shared program folder); per-user settings and projects are never stored there. Version names are parsed as version numbers (no path separators), archives are unpacked with the same path checks, and old versions are only deleted after a rename proves no PC is running them.
 
+**Project files (ADR-032).** Opening a `.motix` file is untrusted input: 64 MB cap, item limits, unknown fields rejected, duplicate ids refused, names stripped of control characters and capped, times range-checked, clips that overlap or point at missing tracks dropped; saving is atomic with a `.bak`. Crash-recovery copies stay in the user's local app-data folder.
+
+**Creator Lab owner password (ADR-033).** Only a random salt and SHA-256(Argon2id(password)) with 64 MiB / 3 passes are in the public code; the remembered unlock is the derived key in the user's own app-data folder. Minimum 12 characters. The password must never be typed into a chat or a GitHub issue. This gates the official build's UI; it is not a security boundary against someone who builds their own copy.
+
 ### 3.8 AI models
 - Only ONNX/GGUF formats (no pickle / arbitrary code deserialization).
 - Pinned hashes in TUF-signed catalog; downloaded over HTTPS and verified; inference in `motix-ai-worker` with the same sandboxing as media workers.

@@ -29,6 +29,7 @@ semver = "1.0.28"
 sha2 = "0.11.0"
 ed25519-dalek = "3.0.0"
 getrandom = "0.3"
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 dirs = "7.0.0"
 

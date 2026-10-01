@@ -13,7 +13,10 @@
 #![allow(clippy::assigning_clones)]
 
 pub mod actions;
+pub mod document;
+pub mod lab;
 pub mod media;
+pub mod owner;
 pub mod project;
 pub mod state;
 pub mod timeline;
@@ -24,7 +27,7 @@ pub use media::{MediaBin, MediaId, MediaItem, MediaKind};
 pub use motix_probe as probe;
 pub use project::{ColorOutput, FitMode, ProjectSettings, Resolution, SIZE_PRESETS, SettingsError, SizePreset};
 pub use state::Tool;
-pub use state::{AppState, MatchOffer, Outcome};
+pub use state::{AfterSave, AppState, MatchOffer, Outcome};
 pub use timeline::{
     Clip, ClipId, ClipSource, Edge, EditError, Marker, MarkerColor, MarkerId, Timeline, Track, TrackId, TrackKind,
 };

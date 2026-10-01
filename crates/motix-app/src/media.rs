@@ -304,6 +304,19 @@ impl MediaBin {
         id
     }
 
+    /// Rebuilds a bin from a saved project.
+    #[must_use]
+    pub(crate) fn from_parts(items: Vec<MediaItem>, next_id: u64) -> Self {
+        let next_id = items.iter().map(|i| i.id.0 + 1).max().unwrap_or(0).max(next_id);
+        Self { items, next_id }
+    }
+
+    /// The id the next item will get (saved so ids are never reused).
+    #[must_use]
+    pub fn next_id(&self) -> u64 {
+        self.next_id
+    }
+
     /// Removes an item, if it exists.
     pub fn remove(&mut self, id: MediaId) -> Option<MediaItem> {
         let index = self.items.iter().position(|i| i.id == id)?;

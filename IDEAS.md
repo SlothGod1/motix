@@ -67,6 +67,11 @@ Declined ideas move to **Declined** so they aren't proposed again.
 - **I-32 · AI media search** — "the clip where I'm holding the red mug" via local embeddings.
 - **I-33 · Auto B-roll suggestions** from your own library.
 - **I-34 · Pure-Rust GPU inference (Burn on wgpu)** — could remove vendor AI runtimes entirely if fast enough.
+- **I-35 · Style profile from "Edits I love"** (owner request) — measure shot lengths, cut-to-beat alignment, transition types, motion and colour of the owner's favourites; suggest edits and score drafts against that profile.
+- **I-36 · Upscale preference tuning** (owner request) — run several upscalers/settings (Real-ESRGAN-style ONNX models) on the owner's comparisons and learn which he prefers for faces, text, anime, low light.
+- **I-37 · Scene packs** (owner request) — shot detection + face re-identification to export "every shot of this person", pacing shots, close-ups, and clean transition points from films/episodes, as named clips ready to drop on the timeline. *Verify* face-model licences.
+- **I-38 · Transition finder** — find matching motion/colour between two shots for seamless match cuts and whip-pan transitions.
+- **I-39 · Beat-synced auto edit** — given a song and a scene pack, propose a first cut in the owner's style.
 
 ### Platform, UX, operations
 - **I-35 ⭐ Build-check macOS in CI from now on** — compile (not test or ship) on free macOS runners every PR. *Why:* catches Mac-breaking code years before the Mac phase, for $0. *Cost:* ~5 minutes of CI per PR.

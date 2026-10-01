@@ -443,6 +443,154 @@ fn sharing_on_the_network_and_shared_updates() {
 }
 
 #[test]
+fn save_open_and_unsaved_changes() {
+    let dir = std::env::temp_dir().join(format!("motix-ui-save-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = harness();
+    h.state_mut().import(vec![fixture("h264_aac_2997.mp4")]);
+    h.run();
+    h.get_by_label("Untitled project \u{2022}");
+
+    // New project with unsaved changes asks first; Save asks where (first time).
+    h.state_mut().perform(Action::NewProject);
+    h.run();
+    h.get_by_label("Save your changes?");
+    h.get_by_label("Save").click();
+    h.run();
+    assert_eq!(
+        h.state_mut().take_requests(),
+        vec![Request::PickSavePath {
+            suggested: "Untitled project.motix".into()
+        }]
+    );
+    h.state_mut().save_as(&dir.join("Trip.motix"));
+    h.run();
+    assert!(
+        h.state().state().media.items().is_empty(),
+        "then the new project started"
+    );
+    assert!(dir.join("Trip.motix").is_file());
+
+    // Open it again (from the dialog), change it, and choose "Don't save" on New.
+    h.state_mut().open_project(&dir.join("Trip.motix"));
+    h.run();
+    assert_eq!(h.state().state().media.items().len(), 1);
+    h.get_by_label("Trip");
+    let id = h.state().state().media.items()[0].id;
+    h.state_mut().state_mut().add_to_timeline(id, None, None).unwrap();
+    h.state_mut().perform(Action::NewProject);
+    h.run();
+    h.get_by_label("Don't save").click();
+    h.run();
+    assert!(h.state().state().timeline.is_empty());
+
+    // Ctrl+S on a saved project saves straight away; Cancel keeps everything.
+    h.state_mut().open_project(&dir.join("Trip.motix"));
+    h.state_mut().state_mut().add_to_timeline(id, None, None).unwrap();
+    h.state_mut().perform(Action::Quit);
+    h.run();
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(h.state_mut().take_requests().is_empty(), "cancel means nothing happens");
+    h.state_mut().perform(Action::SaveProject);
+    h.run();
+    assert!(!h.state().state().is_dirty());
+    h.state_mut().perform(Action::Quit);
+    assert_eq!(h.state_mut().take_requests(), vec![Request::Quit]);
+
+    // Dropping a project file on the window opens it.
+    let mut h2 = harness();
+    h2.state_mut().import(vec![dir.join("Trip.motix")]);
+    h2.run();
+    assert_eq!(h2.state().state().timeline.clips().len(), 2, "video + its audio");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn creator_lab_is_owner_only() {
+    let dir = std::env::temp_dir().join(format!("motix-ui-lab-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut h = harness();
+    h.state_mut().set_owner_check(None);
+    h.state_mut().set_lab_storage(&dir);
+    h.get_by_label("\u{1f512} Creator Lab").click();
+    h.run();
+    h.get_by_label("\u{1f512} Only the owner can open the Creator Lab.");
+    h.get_by_label("Create owner password…");
+    assert!(!h.state().lab_unlocked());
+
+    // With an owner password built in: wrong password stays locked, right one opens.
+    let check =
+        motix_app::owner::create_with("purple ladder sunset river", "purple ladder sunset river", 8 * 1024, 1).unwrap();
+    let mut h = harness();
+    h.state_mut().set_owner_check(Some(check));
+    h.state_mut().set_lab_storage(&dir);
+    h.state_mut().show_lab(true);
+    h.run();
+    h.get_by_label("Owner password");
+    h.state_mut().show_lab(true);
+    let field = h.get_by_role(egui::accesskit::Role::PasswordInput);
+    field.click();
+    h.run();
+    h.get_by_role(egui::accesskit::Role::PasswordInput)
+        .type_text("wrong guess entirely");
+    h.run();
+    h.get_by_label("Unlock").click();
+    h.run();
+    h.get_by_label("That's not the owner password.");
+    assert!(!h.state().lab_unlocked());
+
+    // The right password (typed into the same field after clearing it).
+    let mut h = harness();
+    h.state_mut().set_owner_check(Some(check));
+    h.state_mut().set_lab_storage(&dir);
+    h.state_mut().show_lab(true);
+    h.run();
+    h.get_by_role(egui::accesskit::Role::PasswordInput).click();
+    h.run();
+    h.get_by_role(egui::accesskit::Role::PasswordInput)
+        .type_text("purple ladder sunset river");
+    h.run();
+    h.get_by_label("Unlock").click();
+    h.run();
+    assert!(h.state().lab_unlocked());
+    h.get_by_label("Add edits…").click();
+    h.run();
+    assert_eq!(
+        h.state_mut().take_requests(),
+        vec![Request::PickLabFiles {
+            collection: motix_app::lab::Collection::LovedEdits
+        }]
+    );
+    h.state_mut().lab_add(
+        motix_app::lab::Collection::LovedEdits,
+        vec![PathBuf::from("my favourite.mp4")],
+    );
+    h.run();
+    h.get_by_label("my favourite.mp4");
+    h.get_by_label("Transitions").click();
+    h.run();
+
+    // Next start on this PC: remembered, and the library is still there.
+    let mut h = harness();
+    h.state_mut().set_owner_check(Some(check));
+    h.state_mut().set_lab_storage(&dir);
+    assert!(h.state().lab_unlocked());
+    assert_eq!(
+        h.state().lab_library().loved[0].qualities,
+        [motix_app::lab::Quality::Transitions]
+    );
+    // A different owner password (another build) doesn't accept the remembered key.
+    let other = motix_app::owner::create_with("another long password", "another long password", 8 * 1024, 1).unwrap();
+    let mut h = harness();
+    h.state_mut().set_owner_check(Some(other));
+    h.state_mut().set_lab_storage(&dir);
+    assert!(!h.state().lab_unlocked());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn unavailable_features_say_so_plainly() {
     let mut h = harness();
     h.state_mut().perform(Action::Export);
@@ -454,6 +602,7 @@ fn unavailable_features_say_so_plainly() {
 /// Needs a GPU or software renderer: `cargo test -p motix-ui -- --ignored`.
 #[test]
 #[ignore = "needs a GPU adapter; run explicitly"]
+#[allow(clippy::too_many_lines)] // one walkthrough of every screen, top to bottom
 fn screenshots() {
     let out = PathBuf::from(std::env::var("MOTIX_SCREENSHOT_DIR").unwrap_or_else(|_| "target/screenshots".to_owned()));
     std::fs::create_dir_all(&out).unwrap();
@@ -560,4 +709,37 @@ fn screenshots() {
     h2.state_mut().set_update_info(info);
     h2.run();
     h2.render().unwrap().save(out.join("07-share-done.png")).unwrap();
+
+    // The Creator Lab: locked, then with a few examples.
+    let lab_dir = std::env::temp_dir().join(format!("motix-shot-lab-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&lab_dir);
+    std::fs::create_dir_all(&lab_dir).unwrap();
+    let check =
+        motix_app::owner::create_with("purple ladder sunset river", "purple ladder sunset river", 8 * 1024, 1).unwrap();
+    let mut h3 = Harness::builder()
+        .with_size(egui::vec2(1440.0, 900.0))
+        .wgpu()
+        .build_ui_state(
+            |ui, app: &mut MotixUi| app.show(ui),
+            MotixUi::new("Software renderer (test)"),
+        );
+    h3.state_mut().set_owner_check(Some(check));
+    h3.state_mut().set_lab_storage(&lab_dir);
+    h3.state_mut().show_lab(true);
+    h3.run();
+    h3.render().unwrap().save(out.join("08-lab-locked.png")).unwrap();
+    let key = motix_app::owner::unlock("purple ladder sunset river", Some(&check)).unwrap();
+    std::fs::write(
+        lab_dir.join("creator-lab-unlock.txt"),
+        motix_app::owner::remembered_text(&key),
+    )
+    .unwrap();
+    h3.state_mut().set_lab_storage(&lab_dir);
+    h3.state_mut().lab_add(
+        motix_app::lab::Collection::LovedEdits,
+        vec![PathBuf::from("Night drive edit.mp4"), PathBuf::from("Summer recap.mp4")],
+    );
+    h3.run();
+    h3.render().unwrap().save(out.join("09-lab-library.png")).unwrap();
+    let _ = std::fs::remove_dir_all(lab_dir);
 }

@@ -5,12 +5,14 @@
 //! every change maps onto one collaboration operation.
 
 use crate::actions::{self, Action, Availability};
+use crate::document;
 use crate::media::{AddReport, MediaBin, MediaId, MediaItem};
 use crate::project::{ColorOutput, FitMode, ProjectSettings, Resolution, SIZE_PRESETS, SettingsError};
 use crate::timeline::{ClipId, Edge, EditError, MarkerColor, MarkerId, Timeline, TrackId, TrackKind};
 use motix_core::{FrameRate, Time};
 use motix_probe::DynamicRange;
-use std::path::PathBuf;
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
 
 /// What happened when an action was performed. The UI reacts to these.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,11 +33,37 @@ pub enum Outcome {
     CheckForUpdates,
     /// The host should ask for a folder and set up a shared copy of MOTIX there.
     ShareOnNetwork,
+    /// The UI should ask where to save the project, then continue with `then`.
+    PickSavePath {
+        /// What to do once it's saved.
+        then: Option<AfterSave>,
+    },
+    /// The UI should ask which project to open.
+    PickProjectToOpen,
+    /// There are unsaved changes: the UI should ask "Save, Don't save, Cancel" before
+    /// doing `then`.
+    ConfirmUnsaved {
+        /// What the user was about to do.
+        then: AfterSave,
+    },
     /// Not in this build yet.
     NotYet {
         /// Action label.
         label: &'static str,
     },
+}
+
+/// What to do after the "save changes?" question is answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AfterSave {
+    /// Start a new project.
+    NewProject,
+    /// Choose a project to open.
+    OpenProject,
+    /// Open this particular project (it was dropped on the window).
+    OpenDropped,
+    /// Close MOTIX.
+    Quit,
 }
 
 /// The timeline's editing tool (DaVinci Resolve keys: A and B).
@@ -160,8 +188,13 @@ pub struct AppState {
     pub snapping: bool,
     /// Clicking a clip also selects the clips linked to it (Ctrl+Shift+L).
     pub linked_selection: bool,
+    /// Where the project is saved, once it has been.
+    pub file: Option<PathBuf>,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
+    /// Counts changes; compared with `saved_revision` to know about unsaved changes.
+    revision: u64,
+    saved_revision: u64,
 }
 
 impl Default for AppState {
@@ -181,8 +214,11 @@ impl Default for AppState {
             tool: Tool::Select,
             snapping: true,
             linked_selection: true,
+            file: None,
             undo: Vec::new(),
             redo: Vec::new(),
+            revision: 0,
+            saved_revision: 0,
         }
     }
 }
@@ -218,6 +254,7 @@ impl AppState {
         let before = self.snapshot(label);
         match f(self) {
             Ok(v) => {
+                self.revision += 1;
                 self.undo.push(before);
                 if self.undo.len() > MAX_UNDO {
                     self.undo.remove(0);
@@ -253,6 +290,7 @@ impl AppState {
         let label = prev.label.clone();
         let now = self.snapshot(&label);
         self.restore(prev);
+        self.revision += 1;
         self.redo.push(now);
         self.status = format!("Undid: {label}.");
     }
@@ -265,6 +303,7 @@ impl AppState {
         let label = next.label.clone();
         let now = self.snapshot(&label);
         self.restore(next);
+        self.revision += 1;
         self.undo.push(now);
         self.status = format!("Redid: {label}.");
     }
@@ -273,6 +312,7 @@ impl AppState {
 
     /// Performs an action. Menus, shortcuts and the command palette all come here,
     /// so they always behave identically.
+    #[allow(clippy::too_many_lines)] // one flat dispatch table reads best in one place
     pub fn perform(&mut self, action: Action) -> Outcome {
         let info = actions::info_of(action);
         if info.availability == Availability::Soon {
@@ -287,7 +327,38 @@ impl AppState {
             Action::CommandPalette => return Outcome::OpenCommandPalette,
             Action::ResetLayout => return Outcome::ResetLayout,
             Action::About => return Outcome::ShowAbout,
-            Action::Quit => return Outcome::Quit,
+            Action::Quit => {
+                return if self.is_dirty() {
+                    Outcome::ConfirmUnsaved { then: AfterSave::Quit }
+                } else {
+                    Outcome::Quit
+                };
+            }
+            Action::NewProject => {
+                if self.is_dirty() {
+                    return Outcome::ConfirmUnsaved {
+                        then: AfterSave::NewProject,
+                    };
+                }
+                self.new_project();
+            }
+            Action::OpenProject => {
+                return if self.is_dirty() {
+                    Outcome::ConfirmUnsaved {
+                        then: AfterSave::OpenProject,
+                    }
+                } else {
+                    Outcome::PickProjectToOpen
+                };
+            }
+            Action::SaveProject => {
+                if let Some(path) = self.file.clone() {
+                    let _ = self.save_to(&path);
+                } else {
+                    return Outcome::PickSavePath { then: None };
+                }
+            }
+            Action::SaveProjectAs => return Outcome::PickSavePath { then: None },
             Action::CheckForUpdates => return Outcome::CheckForUpdates,
             Action::ShareOnNetwork => return Outcome::ShareOnNetwork,
             Action::ToolSelect => {
@@ -357,13 +428,159 @@ impl AppState {
                 let _ = self.set_resolution(r.width, r.height);
             }
             // Unavailable actions returned above; listed for exhaustiveness.
-            Action::NewProject
-            | Action::OpenProject
-            | Action::SaveVersion
-            | Action::Export
-            | Action::StartCollaboration => {}
+            Action::Export | Action::StartCollaboration => {}
         }
         Outcome::Done
+    }
+
+    // ----- project files -----
+
+    /// `true` when there are changes that haven't been saved.
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.revision != self.saved_revision
+    }
+
+    /// The project's name: its file name, or "Untitled project".
+    #[must_use]
+    pub fn project_name(&self) -> String {
+        self.file
+            .as_deref()
+            .and_then(Path::file_stem)
+            .map_or_else(|| "Untitled project".to_owned(), |s| s.to_string_lossy().into_owned())
+    }
+
+    fn contents(&self) -> document::Contents<'_> {
+        document::Contents {
+            media: &self.media,
+            timeline: &self.timeline,
+            project: &self.project,
+            playhead: self.playhead,
+        }
+    }
+
+    /// Saves the project to `path` (adding `.motix` if missing) and remembers it.
+    ///
+    /// # Errors
+    /// File-system errors, in plain language (also shown in the status bar).
+    pub fn save_to(&mut self, path: &Path) -> Result<(), String> {
+        let mut path = path.to_path_buf();
+        if path.extension().is_none_or(|e| e != document::EXTENSION) {
+            let mut name = path.file_name().unwrap_or_default().to_os_string();
+            name.push(".");
+            name.push(document::EXTENSION);
+            path.set_file_name(name);
+        }
+        let bytes = document::encode(&self.contents(), &path, None);
+        match document::write_atomically(&path, &bytes) {
+            Ok(()) => {
+                self.file = Some(path);
+                self.saved_revision = self.revision;
+                self.status = format!("Saved \u{201c}{}\u{201d}.", self.project_name());
+                Ok(())
+            }
+            Err(e) => {
+                let why = format!("Couldn't save the project: {e}. Try Save as… to pick another folder.");
+                self.status.clone_from(&why);
+                Err(why)
+            }
+        }
+    }
+
+    /// A crash-recovery copy of the current project (to write to `copy_path`).
+    #[must_use]
+    pub fn recovery_bytes(&self, copy_path: &Path) -> Vec<u8> {
+        let of = self.file.clone().unwrap_or_default();
+        document::encode(&self.contents(), copy_path, Some(&of))
+    }
+
+    /// Starts an empty project (the caller asks about unsaved changes first).
+    pub fn new_project(&mut self) {
+        let keep = (
+            self.show_safe_areas,
+            self.snapping,
+            self.linked_selection,
+            self.revision,
+        );
+        *self = Self::default();
+        (self.show_safe_areas, self.snapping, self.linked_selection) = (keep.0, keep.1, keep.2);
+        // Fresh revision numbers that can't collide with the old ones.
+        self.revision = keep.3 + 1;
+        self.saved_revision = self.revision;
+        self.status = "New project. Drag videos, audio or images into the window to start.".to_owned();
+    }
+
+    fn take_loaded(&mut self, loaded: document::Loaded, file: Option<PathBuf>) {
+        self.new_project();
+        self.media = loaded.media;
+        self.timeline = loaded.timeline;
+        self.project = loaded.project;
+        self.playhead = loaded.playhead;
+        self.file = file;
+        // An opened project has already been set up; don't ask to match it again.
+        self.match_asked = true;
+        self.selected_media = self.media.items().first().map(|i| i.id);
+        let mut msg = format!("Opened \u{201c}{}\u{201d}.", self.project_name());
+        if !loaded.missing.is_empty() {
+            let n = loaded.missing.len();
+            let names = loaded.missing.iter().take(3).cloned().collect::<Vec<_>>().join(", ");
+            let more = if n > 3 {
+                format!(" and {} more", n - 3)
+            } else {
+                String::new()
+            };
+            let _ = write!(
+                msg,
+                " {n} file{} can't be found ({names}{more}); their clips are kept and work again once the file is back.",
+                if n == 1 { "" } else { "s" }
+            );
+        }
+        if loaded.dropped > 0 {
+            let _ = write!(msg, " {} damaged item(s) were left out.", loaded.dropped);
+        }
+        self.status = msg;
+    }
+
+    /// Opens a project file, replacing the current project (the caller asks about
+    /// unsaved changes first).
+    ///
+    /// # Errors
+    /// Why it couldn't be opened, in plain language (the current project is kept).
+    pub fn open_file(&mut self, path: &Path) -> Result<(), String> {
+        match document::open(path) {
+            Ok(loaded) => {
+                self.take_loaded(loaded, Some(path.to_path_buf()));
+                Ok(())
+            }
+            Err(e) => {
+                self.status = e.to_string();
+                Err(e.to_string())
+            }
+        }
+    }
+
+    /// Restores unsaved changes from a crash-recovery copy. The project keeps its
+    /// original file (if it had one) and shows as having unsaved changes.
+    ///
+    /// # Errors
+    /// Why the copy couldn't be read.
+    pub fn restore_recovery(&mut self, copy: &Path) -> Result<(), String> {
+        match document::open(copy) {
+            Ok(loaded) => {
+                let original = loaded.recovery_of.clone().filter(|p| !p.as_os_str().is_empty());
+                self.take_loaded(loaded, original);
+                self.revision += 1;
+                self.status = format!(
+                    "Restored your unsaved changes to \u{201c}{}\u{201d}. Press Ctrl+S to keep them.",
+                    self.project_name()
+                );
+                Ok(())
+            }
+            Err(e) => {
+                self.status = e.to_string();
+                Err(e.to_string())
+            }
+        }
     }
 
     // ----- media -----

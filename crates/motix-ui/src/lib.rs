@@ -18,16 +18,19 @@
 )]
 
 mod inspector;
+mod lab;
 mod media_panel;
 mod palette;
 mod panes;
+mod project_prompts;
 pub mod theme;
 mod timeline;
 mod updates;
 mod viewer;
 
 use motix_app::actions::{self, Action, Key};
-use motix_app::{AppState, Outcome, Shortcut};
+use motix_app::document::RecoveryCopy;
+use motix_app::{AfterSave, AppState, Outcome, Shortcut};
 use motix_core::{FLICKS_PER_SECOND, Time};
 use std::path::PathBuf;
 
@@ -51,6 +54,32 @@ pub enum Request {
     /// Ask for a folder and set up a shared copy of MOTIX in it (Help > Share MOTIX
     /// on your network…); report back through [`MotixUi::set_update_info`].
     ShareOnNetwork,
+    /// Show a "save as" dialog for a `.motix` file named `suggested`, then call
+    /// [`MotixUi::save_as`] (or [`MotixUi::cancel_save`] if the user cancels).
+    PickSavePath {
+        /// Suggested file name, e.g. `"Untitled project.motix"`.
+        suggested: String,
+    },
+    /// Show an "open" dialog for `.motix` files, then call [`MotixUi::open_project`].
+    PickProjectFile,
+    /// Creator Lab: save this owner-password check file (it contains no password)
+    /// where the user chooses.
+    SaveOwnerSetup {
+        /// The file's contents.
+        text: String,
+    },
+    /// Creator Lab: pick video/image files for a collection, then call
+    /// [`MotixUi::lab_add`].
+    PickLabFiles {
+        /// Which collection.
+        collection: motix_app::lab::Collection,
+    },
+    /// Creator Lab: pick the upscaled version for comparison `index`, then call
+    /// [`MotixUi::lab_set_upscaled`].
+    PickUpscaleAfter {
+        /// Which comparison.
+        index: usize,
+    },
 }
 
 /// Transient UI-only state (never part of the project document).
@@ -60,6 +89,18 @@ pub(crate) struct UiState {
     pub palette: palette::Palette,
     pub show_about: bool,
     pub updates: updates::UpdatesView,
+    /// A "save changes?" question waiting for an answer.
+    pub unsaved: Option<AfterSave>,
+    /// What to do once the pending "save as" completes.
+    pub after_save: Option<AfterSave>,
+    /// A project dropped on the window, waiting for the "save changes?" answer.
+    pub dropped_project: Option<PathBuf>,
+    /// Crash-recovery copies offered on start-up.
+    pub recovery: Vec<RecoveryCopy>,
+    /// The user agreed to close (so a close request isn't intercepted again).
+    pub allow_close: bool,
+    /// The owner-only Creator Lab.
+    pub lab: lab::LabView,
 }
 
 /// The whole MOTIX window.
@@ -85,6 +126,12 @@ impl MotixUi {
                 palette: palette::Palette::default(),
                 show_about: false,
                 updates: updates::UpdatesView::default(),
+                unsaved: None,
+                after_save: None,
+                dropped_project: None,
+                recovery: Vec::new(),
+                allow_close: false,
+                lab: lab::LabView::default(),
             },
             tree: panes::default_layout(),
             requests: Vec::new(),
@@ -122,9 +169,156 @@ impl MotixUi {
         self.ui_state.palette.open
     }
 
-    /// Adds files chosen by the user (from a dialog or drag and drop).
+    /// Adds files chosen by the user (from a dialog or drag and drop). A MOTIX
+    /// project among them is opened instead (asking about unsaved changes first).
     pub fn import(&mut self, paths: Vec<PathBuf>) {
-        self.state.import(paths);
+        let (projects, media): (Vec<PathBuf>, Vec<PathBuf>) = paths.into_iter().partition(|p| {
+            p.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case(motix_app::document::EXTENSION))
+        });
+        if !media.is_empty() {
+            self.state.import(media);
+        }
+        if let Some(project) = projects.into_iter().next() {
+            if self.state.is_dirty() {
+                self.ui_state.dropped_project = Some(project);
+                self.ui_state.unsaved = Some(AfterSave::OpenDropped);
+            } else {
+                let _ = self.state.open_file(&project);
+            }
+        }
+    }
+
+    /// Saves to the path the user chose in the "save as" dialog, then carries on with
+    /// whatever was waiting for the save (new project, open, quit).
+    pub fn save_as(&mut self, path: &std::path::Path) {
+        let then = self.ui_state.after_save.take();
+        if self.state.save_to(path).is_ok()
+            && let Some(then) = then
+        {
+            self.continue_after(then);
+        }
+    }
+
+    /// The user cancelled the "save as" dialog: nothing else happens.
+    pub fn cancel_save(&mut self) {
+        self.ui_state.after_save = None;
+        self.ui_state.dropped_project = None;
+    }
+
+    /// Opens a project chosen in the "open" dialog (or given when MOTIX started).
+    pub fn open_project(&mut self, path: &std::path::Path) {
+        let _ = self.state.open_file(path);
+    }
+
+    /// Tells the Creator Lab where to keep its library and remember the owner on this
+    /// PC (a per-user settings folder); opens it if this PC remembers the owner.
+    pub fn set_lab_storage(&mut self, dir: &std::path::Path) {
+        self.ui_state.lab.set_storage(dir);
+    }
+
+    /// Adds files picked for a Creator Lab collection.
+    pub fn lab_add(&mut self, collection: motix_app::lab::Collection, paths: Vec<PathBuf>) {
+        self.ui_state.lab.add(collection, paths);
+    }
+
+    /// Sets the upscaled file of a Creator Lab comparison.
+    pub fn lab_set_upscaled(&mut self, index: usize, path: PathBuf) {
+        self.ui_state.lab.set_after(index, path);
+    }
+
+    /// Shows the Creator Lab page (`true`) or the editor (`false`).
+    pub fn show_lab(&mut self, open: bool) {
+        self.ui_state.lab.open = open;
+    }
+
+    /// Whether the Creator Lab is unlocked on this PC.
+    #[must_use]
+    pub fn lab_unlocked(&self) -> bool {
+        self.ui_state.lab.unlocked
+    }
+
+    /// The Creator Lab's library (for tests and the host).
+    #[must_use]
+    pub fn lab_library(&self) -> &motix_app::lab::LabLibrary {
+        self.ui_state.lab.library()
+    }
+
+    /// Replaces the owner check (tests use a quick one; the app uses the built-in one).
+    pub fn set_owner_check(&mut self, check: Option<motix_app::owner::OwnerCheck>) {
+        self.ui_state.lab.check = check;
+    }
+
+    /// Offers to restore crash-recovery copies (newest first) found on start-up.
+    pub fn offer_recovery(&mut self, copies: Vec<RecoveryCopy>) {
+        self.ui_state.recovery = copies;
+    }
+
+    /// Whether a "save changes?" question is showing.
+    #[must_use]
+    pub fn asking_to_save(&self) -> bool {
+        self.ui_state.unsaved.is_some()
+    }
+
+    fn suggested_file_name(&self) -> String {
+        format!("{}.{}", self.state.project_name(), motix_app::document::EXTENSION)
+    }
+
+    fn continue_after(&mut self, then: AfterSave) {
+        match then {
+            AfterSave::NewProject => self.state.new_project(),
+            AfterSave::OpenProject => self.requests.push(Request::PickProjectFile),
+            AfterSave::OpenDropped => {
+                if let Some(p) = self.ui_state.dropped_project.take() {
+                    let _ = self.state.open_file(&p);
+                }
+            }
+            AfterSave::Quit => {
+                self.ui_state.allow_close = true;
+                self.requests.push(Request::Quit);
+            }
+        }
+    }
+
+    fn project_prompts(&mut self, ctx: &egui::Context) {
+        let name = self.state.project_name();
+        let choice = project_prompts::unsaved(ctx, &mut self.ui_state.unsaved, &name)
+            .or_else(|| project_prompts::recovery(ctx, &self.ui_state.recovery));
+        match choice {
+            None => {
+                if self.ui_state.unsaved.is_none() && self.ui_state.after_save.is_none() {
+                    // Cancelled: forget a dropped project that was waiting.
+                    self.ui_state.dropped_project = None;
+                }
+            }
+            Some(project_prompts::Choice::Save(then)) => {
+                if let Some(path) = self.state.file.clone() {
+                    if self.state.save_to(&path).is_ok() {
+                        self.continue_after(then);
+                    }
+                } else {
+                    self.ui_state.after_save = Some(then);
+                    self.requests.push(Request::PickSavePath {
+                        suggested: self.suggested_file_name(),
+                    });
+                }
+            }
+            Some(project_prompts::Choice::DontSave(then)) => self.continue_after(then),
+            Some(project_prompts::Choice::Restore(path)) => {
+                let _ = self.state.restore_recovery(&path);
+                self.discard_recovery();
+            }
+            Some(project_prompts::Choice::DiscardRecovery) => {
+                self.discard_recovery();
+                self.state.status = "Unsaved changes from last time were discarded.".to_owned();
+            }
+        }
+    }
+
+    fn discard_recovery(&mut self) {
+        for copy in std::mem::take(&mut self.ui_state.recovery) {
+            let _ = std::fs::remove_file(copy.path);
+        }
     }
 
     /// Requests produced since the last call, for the host to handle.
@@ -143,7 +337,10 @@ impl MotixUi {
                 self.state.status = "Panel layout restored.".to_owned();
             }
             Outcome::ShowAbout => self.ui_state.show_about = true,
-            Outcome::Quit => self.requests.push(Request::Quit),
+            Outcome::Quit => {
+                self.ui_state.allow_close = true;
+                self.requests.push(Request::Quit);
+            }
             Outcome::CheckForUpdates => {
                 self.ui_state.updates.open = true;
                 self.requests.push(Request::CheckForUpdates);
@@ -152,6 +349,14 @@ impl MotixUi {
                 self.ui_state.updates.open = true;
                 self.requests.push(Request::ShareOnNetwork);
             }
+            Outcome::PickSavePath { then } => {
+                self.ui_state.after_save = then;
+                self.requests.push(Request::PickSavePath {
+                    suggested: self.suggested_file_name(),
+                });
+            }
+            Outcome::PickProjectToOpen => self.requests.push(Request::PickProjectFile),
+            Outcome::ConfirmUnsaved { then } => self.ui_state.unsaved = Some(then),
         }
     }
 
@@ -162,6 +367,11 @@ impl MotixUi {
             theme::apply(&ctx);
             self.themed = true;
         }
+        // Closing the window with unsaved changes asks first.
+        if ctx.input(|i| i.viewport().close_requested()) && self.state.is_dirty() && !self.ui_state.allow_close {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.ui_state.unsaved = Some(AfterSave::Quit);
+        }
         self.handle_dropped_files(&ctx);
         self.handle_shortcuts(&ctx);
         self.tick_playback(&ctx);
@@ -171,6 +381,25 @@ impl MotixUi {
             updates::banner(ui, &mut self.ui_state.updates, &self.update_info, &mut self.requests);
         });
         egui::Panel::bottom("motix_status_bar").show(ui, |ui| self.status_bar(ui));
+        if self.ui_state.lab.open {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::new().fill(theme::BG))
+                .show(ui, |ui| lab::page(ui, &mut self.ui_state.lab, &mut self.requests));
+        } else {
+            self.editor(ui);
+        }
+
+        Self::drop_overlay(&ctx);
+        if let Some(action) = self.ui_state.palette.show(&ctx) {
+            self.perform(action);
+        }
+        self.match_modal(&ctx);
+        self.project_prompts(&ctx);
+        updates::window(&ctx, &mut self.ui_state.updates, &self.update_info, &mut self.requests);
+        self.about_modal(&ctx);
+    }
+
+    fn editor(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::BG).inner_margin(6.0))
             .show(ui, |ui| {
@@ -185,14 +414,6 @@ impl MotixUi {
                     self.perform(a);
                 }
             });
-
-        Self::drop_overlay(&ctx);
-        if let Some(action) = self.ui_state.palette.show(&ctx) {
-            self.perform(action);
-        }
-        self.match_modal(&ctx);
-        updates::window(&ctx, &mut self.ui_state.updates, &self.update_info, &mut self.requests);
-        self.about_modal(&ctx);
     }
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
@@ -200,6 +421,23 @@ impl MotixUi {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.label(egui::RichText::new("MOTIX").strong().color(theme::ACCENT).size(16.0));
             ui.add_space(8.0);
+            let lab_open = self.ui_state.lab.open;
+            if ui.selectable_label(!lab_open, "Editor").clicked() {
+                self.ui_state.lab.open = false;
+            }
+            let lab_label = if self.ui_state.lab.unlocked {
+                "Creator Lab"
+            } else {
+                "\u{1f512} Creator Lab"
+            };
+            if ui
+                .selectable_label(lab_open, lab_label)
+                .on_hover_text("Teach MOTIX your style (owner only)")
+                .clicked()
+            {
+                self.ui_state.lab.open = true;
+            }
+            ui.separator();
             for menu in actions::MENUS {
                 ui.menu_button(menu, |ui| {
                     for info in actions::ALL.iter().filter(|i| i.menu == menu) {
@@ -226,7 +464,13 @@ impl MotixUi {
                 {
                     chosen = Some(Action::CommandPalette);
                 }
-                ui.label(egui::RichText::new("Untitled project").color(theme::TEXT_WEAK));
+                let name = self.state.project_name();
+                if self.state.is_dirty() {
+                    ui.label(egui::RichText::new(format!("{name} \u{2022}")).color(theme::TEXT))
+                        .on_hover_text("Unsaved changes — press Ctrl+S to save");
+                } else {
+                    ui.label(egui::RichText::new(name).color(theme::TEXT_WEAK));
+                }
             });
         });
         if let Some(a) = chosen {

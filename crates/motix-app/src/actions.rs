@@ -7,8 +7,10 @@ pub enum Action {
     NewProject,
     /// Open an existing project.
     OpenProject,
-    /// Save a named version of the project.
-    SaveVersion,
+    /// Save the project (asks where the first time).
+    SaveProject,
+    /// Save the project under a new name or in a new place.
+    SaveProjectAs,
     /// Add media files to the media bin.
     ImportMedia,
     /// Undo the last edit.
@@ -248,21 +250,28 @@ pub const ALL: &[ActionInfo] = &[
         "New project",
         "File",
         Some(Shortcut::cmd(Key::Char('N'))),
-        Soon,
+        Now,
     ),
     info(
         Action::OpenProject,
         "Open project…",
         "File",
         Some(Shortcut::cmd(Key::Char('O'))),
-        Soon,
+        Now,
     ),
     info(
-        Action::SaveVersion,
-        "Save version",
+        Action::SaveProject,
+        "Save",
         "File",
         Some(Shortcut::cmd(Key::Char('S'))),
-        Soon,
+        Now,
+    ),
+    info(
+        Action::SaveProjectAs,
+        "Save as…",
+        "File",
+        Some(Shortcut::cmd_shift(Key::Char('S'))),
+        Now,
     ),
     info(
         Action::ImportMedia,
@@ -559,7 +568,8 @@ mod tests {
         let all = [
             Action::NewProject,
             Action::OpenProject,
-            Action::SaveVersion,
+            Action::SaveProject,
+            Action::SaveProjectAs,
             Action::ImportMedia,
             Action::Undo,
             Action::Redo,

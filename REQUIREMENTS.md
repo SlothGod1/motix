@@ -64,6 +64,7 @@ Derived from the product specification and [ANALYSIS.md](ANALYSIS.md). IDs are s
 | R-PRJ-5 | Named versions and restore. | | 1 |
 | R-PRJ-6 | Media referenced by content hash + relative/absolute hints; relinking; missing-media handling. | | 1 |
 | R-PRJ-7 | Caches, proxies and temp files stored separately and always deletable. | | 1 |
+| R-PRJ-9 | **Owner request 2026-10-01:** Save / Save as / Open / New (Ctrl+S, Ctrl+Shift+S, Ctrl+O, Ctrl+N); "save changes?" before losing work; crash-recovery copy every minute offered on the next start; double-click or drop a `.motix` file to open it. *(Done — ADR-032; journaled CRDT store replaces the format later.)* | | 1 |
 | R-PRJ-8 | Project files treated as untrusted input (validation, limits, no executable content). | 🔒 | 1 |
 
 ### Updates and distribution
@@ -155,6 +156,7 @@ Derived from the product specification and [ANALYSIS.md](ANALYSIS.md). IDs are s
 | S-10 | Background render queue and export queue. | ⚡ | 3 |
 | S-11 | Interchange: OpenTimelineIO, FCPXML, Premiere XML, EDL import/export. | ⚖️ | 11 |
 | S-12 | Social templates (caption styles, intro/outro, aspect variants) stored as project snippets. | ⚖️ | 3 |
+| S-8a | **Owner request 2026-10-01:** **Creator Lab** (owner-only, password): collect edits he loves (and why), before/after upscales, and films to cut into scene packs (one person, pacing, close-ups, transitions); later MOTIX learns his style from them on this PC. *(Tab, password and library done — ADR-033; analysis to come.)* | ⚖️🔒 | 9 |
 | S-13 | OS sandboxing of media and AI workers (restricted token/AppContainer; seccomp/Landlock). | 🔒🖥️ | 12 |
 | S-14 | Linux Flatpak, server .deb/.rpm, OCI image, Unraid template. | 🖥️ | 2/5 |
 | S-15 | MSI for managed Windows deployment; offline/air-gapped update bundles. | 🖥️ | 12 |

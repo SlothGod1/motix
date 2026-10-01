@@ -152,6 +152,15 @@ struct MotixApp {
     install_error: Option<String>,
     layout: Option<Layout>,
     share_result: Option<Result<String, String>>,
+    /// Where this MOTIX keeps its crash-recovery copy of unsaved changes.
+    recovery_file: Option<PathBuf>,
+    last_recovery_write: Option<std::time::Instant>,
+    title: String,
+}
+
+/// Folder for crash-recovery copies (per user, on this PC).
+fn recovery_dir() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|d| d.join("MOTIX").join("recovery"))
 }
 
 impl MotixApp {
@@ -170,6 +179,20 @@ impl MotixApp {
         if std::env::args().any(|a| a == "--updated") {
             ui.state_mut().status = format!("MOTIX was updated to version {}.", version_text());
         }
+        // A project given on the command line (double-clicking a .motix file).
+        if let Some(project) = std::env::args_os().skip(1).map(PathBuf::from).find(|p| {
+            p.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case(motix_app::document::EXTENSION))
+        }) {
+            ui.open_project(&project);
+        }
+        if let Some(dir) = dirs::config_dir() {
+            ui.set_lab_storage(&dir.join("MOTIX"));
+        }
+        let recovery_file = recovery_dir().map(|dir| {
+            ui.offer_recovery(motix_app::document::find_recovery(&dir));
+            motix_app::document::recovery_path(&dir)
+        });
         Self {
             ui,
             settings,
@@ -178,6 +201,92 @@ impl MotixApp {
             install_error: None,
             layout,
             share_result: None,
+            recovery_file,
+            last_recovery_write: None,
+            title: String::new(),
+        }
+    }
+
+    /// Keeps a copy of unsaved changes every minute, so a crash or power cut loses at
+    /// most a minute of work; removes it once everything is saved.
+    fn keep_recovery_copy(&mut self) {
+        let Some(path) = &self.recovery_file else { return };
+        let state = self.ui.state();
+        if !state.is_dirty() {
+            if self.last_recovery_write.take().is_some() {
+                let _ = std::fs::remove_file(path);
+            }
+            return;
+        }
+        let due = self
+            .last_recovery_write
+            .is_none_or(|t| t.elapsed() >= Duration::from_secs(motix_app::document::RECOVERY_INTERVAL_SECONDS));
+        if due {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = motix_app::document::write_atomically(path, &state.recovery_bytes(path));
+            let _ = std::fs::remove_file(path.with_extension("motix.bak"));
+            self.last_recovery_write = Some(std::time::Instant::now());
+        }
+    }
+
+    fn pick_save_path(&mut self, suggested: &str) {
+        let picked = rfd::FileDialog::new()
+            .set_title("Save project")
+            .set_file_name(suggested)
+            .add_filter("MOTIX project", &[motix_app::document::EXTENSION])
+            .save_file();
+        match picked {
+            Some(path) => self.ui.save_as(&path),
+            None => self.ui.cancel_save(),
+        }
+    }
+
+    fn save_owner_setup(text: &str) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Save the owner-password check (it doesn't contain your password)")
+            .set_file_name("motix-owner-password-check.txt")
+            .add_filter("Text", &["txt"])
+            .save_file()
+        {
+            let _ = std::fs::write(path, text);
+        }
+    }
+
+    fn pick_lab_files(&mut self, collection: motix_app::lab::Collection) {
+        let picked = rfd::FileDialog::new()
+            .set_title("Add to the Creator Lab")
+            .add_filter(
+                "Videos and images",
+                &[
+                    "mp4", "mov", "m4v", "mkv", "webm", "avi", "mts", "m2ts", "png", "jpg", "jpeg", "webp", "tif",
+                    "tiff", "bmp",
+                ],
+            )
+            .add_filter("All files", &["*"])
+            .pick_files();
+        if let Some(files) = picked {
+            self.ui.lab_add(collection, files);
+        }
+    }
+
+    fn pick_upscale_after(&mut self, index: usize) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Choose the upscaled version")
+            .pick_file()
+        {
+            self.ui.lab_set_upscaled(index, path);
+        }
+    }
+
+    fn pick_project(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Open project")
+            .add_filter("MOTIX project", &[motix_app::document::EXTENSION])
+            .pick_file()
+        {
+            self.ui.open_project(&path);
         }
     }
 
@@ -266,11 +375,26 @@ impl eframe::App for MotixApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.ui.set_update_info(self.update_info());
         self.ui.show(ui);
+        self.keep_recovery_copy();
+        let title = format!(
+            "{}{} — MOTIX",
+            self.ui.state().project_name(),
+            if self.ui.state().is_dirty() { " •" } else { "" }
+        );
+        if title != self.title {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.title = title;
+        }
         // Background download progress and "update ready" need a refresh now and then.
         ui.ctx().request_repaint_after(Duration::from_secs(1));
         for request in self.ui.take_requests() {
             match request {
                 Request::PickMediaFiles => self.pick_media(),
+                Request::PickSavePath { suggested } => self.pick_save_path(&suggested),
+                Request::PickProjectFile => self.pick_project(),
+                Request::SaveOwnerSetup { text } => Self::save_owner_setup(&text),
+                Request::PickLabFiles { collection } => self.pick_lab_files(collection),
+                Request::PickUpscaleAfter { index } => self.pick_upscale_after(index),
                 Request::Quit => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
                 Request::CheckForUpdates => {
                     if let Ok(u) = &self.updater {
@@ -303,6 +427,10 @@ impl eframe::App for MotixApp {
     }
 
     fn on_exit(&mut self) {
+        // Closed on purpose (any unsaved changes were saved or deliberately discarded).
+        if let Some(path) = &self.recovery_file {
+            let _ = std::fs::remove_file(path);
+        }
         if self.install_on_exit
             && let Ok(u) = &self.updater
             && u.has_ready_update()

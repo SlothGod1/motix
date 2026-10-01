@@ -7,8 +7,8 @@ collaboration and an optional self-hosted server.
 > **Status: developer preview.** The architecture is documented and the app runs on Windows and Linux: dockable
 > panels, a DaVinci Resolve-style timeline (tracks named after your files, linked video/audio, move, trim,
 > blade, markers, undo), instant media inspection (size, frame rate, HDR), typed project size and frame rate,
-> and signed automatic updates — also for PCs that run MOTIX from a shared folder on your network.
-> Video playback is next.
+> signed automatic updates (also for PCs that run MOTIX from a shared folder on your network), saving and
+> opening projects with crash recovery, and an owner-only Creator Lab. Video playback is next.
 
 ## What it will be
 

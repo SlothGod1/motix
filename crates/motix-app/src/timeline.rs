@@ -262,6 +262,31 @@ impl Timeline {
         self.next_id
     }
 
+    /// Rebuilds a timeline from a saved project (already validated by the caller).
+    #[must_use]
+    pub(crate) fn from_parts(tracks: Vec<Track>, clips: Vec<Clip>, markers: Vec<Marker>, next_id: u64) -> Self {
+        let highest = tracks
+            .iter()
+            .map(|t| t.id.0)
+            .chain(clips.iter().map(|c| c.id.0))
+            .chain(clips.iter().filter_map(|c| c.link.map(|l| l.0)))
+            .chain(markers.iter().map(|m| m.id.0))
+            .max()
+            .unwrap_or(0);
+        Self {
+            tracks,
+            clips,
+            markers,
+            next_id: next_id.max(highest),
+        }
+    }
+
+    /// The last id handed out (saved so ids are never reused).
+    #[must_use]
+    pub fn next_id(&self) -> u64 {
+        self.next_id
+    }
+
     // ----- lookup -----
 
     /// Every track, top to bottom.

@@ -40,6 +40,7 @@ GPL obligations we must meet on every release: ship or link the complete corresp
 | webpki-root-certs (via the verifier) | CDLA-Permissive-2.0 (data) | Mozilla CA list fallback | Keep the licence text; data, not code — allowed as a cargo-deny exception | None | $0 | — |
 | sha2, semver, serde_json | MIT / Apache-2.0 | Checksums, version comparison, GitHub API JSON | None | None | $0 | — |
 | zip (deflate only) | MIT | Unpacking update archives | None | None | $0 | tar + flate2 |
+| argon2 (RustCrypto) | MIT / Apache-2.0 | Creator Lab owner-password check (Argon2id) | None | None | $0 | scrypt |
 | dirs | MIT / Apache-2.0 | Per-user settings/download folders | None | None | $0 | directories |
 | blake3 | CC0-1.0 OR Apache-2.0 | Content hashing | None | None | $0 | SHA-256 |
 | age / rage, argon2, zeroize | MIT / Apache-2.0 | Backup & key-file encryption | None | None | $0 | — |
