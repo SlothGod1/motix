@@ -39,10 +39,20 @@ pub struct OwnerCheck {
     pub key_hash: [u8; 32],
 }
 
-/// The owner check built into this MOTIX. `None` until the owner has created a
-/// password with "Set up the owner password" and sent Claude the resulting file;
-/// until then the Lab stays locked for everyone.
-pub const BUILT_IN: Option<OwnerCheck> = None;
+/// The owner check built into this MOTIX (from the owner's
+/// `motix-owner-password-check.txt`, created 2026-10-01). Without one, the Lab stays
+/// locked for everyone.
+pub const BUILT_IN: Option<OwnerCheck> = Some(OwnerCheck {
+    salt: [
+        0xdf, 0x49, 0x98, 0x0e, 0x74, 0x16, 0x12, 0x5e, 0xf2, 0xbd, 0xce, 0x26, 0xe6, 0xac, 0xe4, 0x11,
+    ],
+    memory_kib: 65_536,
+    passes: 3,
+    key_hash: [
+        0x51, 0x11, 0xef, 0x33, 0x25, 0x46, 0x1c, 0x7d, 0xcc, 0xe5, 0xaa, 0x69, 0xe1, 0x10, 0x74, 0x1b, 0x35, 0x4c,
+        0xc8, 0x37, 0x3c, 0x60, 0x61, 0x1a, 0x64, 0xc0, 0x51, 0xe1, 0x2d, 0x3c, 0x1c, 0x08,
+    ],
+});
 
 /// Why a password couldn't be set or checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -258,6 +268,14 @@ mod tests {
         let b = quick("same password here");
         assert_ne!(a.salt, b.salt);
         assert_ne!(a.key_hash, b.key_hash, "same password, different salts");
+    }
+
+    #[test]
+    fn built_in_check_matches_the_owners_file() {
+        let file = "MOTIX owner password check (safe to share: it does not contain the password)\n\
+                    argon2id-v19\nsalt df49980e7416125ef2bdce26e6ace411\nmemory-kib 65536\npasses 3\n\
+                    key-sha256 5111ef3325461c7dcce5aa69e110741b354cc8373c60611a64c051e12d3c1c08\n";
+        assert_eq!(parse_setup_file(file).ok(), BUILT_IN);
     }
 
     #[test]

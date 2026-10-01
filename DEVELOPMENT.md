@@ -9,7 +9,7 @@
 1. Install Rust with [rustup](https://rustup.rs). The pinned version in `rust-toolchain.toml` installs itself on first use.
 2. From the repository root:
    ```
-   cargo test --workspace      # all tests (127 today)
+   cargo test --workspace      # all tests (128 today)
    cargo clippy --workspace --all-targets
    cargo fmt --all
    cargo run -p motix          # open the MOTIX window
