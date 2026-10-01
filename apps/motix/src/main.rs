@@ -17,6 +17,7 @@ use motix_update::{Config, Layout, Phase, Source, UpdateError, Updater, UreqHttp
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 /// The version stamped by the release build (`MOTIX_VERSION`, e.g. `0.1.0-preview.15`).
@@ -156,6 +157,36 @@ struct MotixApp {
     recovery_file: Option<PathBuf>,
     last_recovery_write: Option<std::time::Instant>,
     title: String,
+    helper_download: Option<Arc<Mutex<HelperDownload>>>,
+}
+
+/// A video helper download running in the background.
+enum HelperDownload {
+    Running(u64, Option<u64>),
+    Done(Result<motix_media::Tools, String>),
+}
+
+/// Folders where a downloaded video helper may be kept: the shared folder (so every PC
+/// uses one copy) and this user's local app-data folder.
+fn helper_bases(layout: Option<&Layout>) -> Vec<PathBuf> {
+    let mut bases = Vec::new();
+    if let Some(Layout::Shared { root }) = layout {
+        bases.push(root.join("tools"));
+    }
+    if let Some(local) = dirs::data_local_dir() {
+        bases.push(local.join("MOTIX").join("tools"));
+    }
+    bases
+}
+
+fn find_tools(layout: Option<&Layout>) -> Option<motix_media::Tools> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(Path::to_path_buf));
+    let mut dirs: Vec<PathBuf> = exe_dir.into_iter().collect();
+    dirs.extend(helper_bases(layout).iter().map(|b| motix_media::helper::folder(b)));
+    let refs: Vec<&Path> = dirs.iter().map(PathBuf::as_path).collect();
+    motix_media::Tools::find(&refs)
 }
 
 /// Folder for crash-recovery copies (per user, on this PC).
@@ -189,6 +220,12 @@ impl MotixApp {
         if let Some(dir) = dirs::config_dir() {
             ui.set_lab_storage(&dir.join("MOTIX"));
         }
+        // The video helper (FFmpeg): next to motix.exe, downloaded earlier, or from the system.
+        let tools = find_tools(layout.as_ref());
+        if tools.is_none() && motix_media::helper::can_download() {
+            ui.set_helper_status(motix_ui::HelperStatus::Offer);
+        }
+        ui.attach_media(tools);
         let recovery_file = recovery_dir().map(|dir| {
             ui.offer_recovery(motix_app::document::find_recovery(&dir));
             motix_app::document::recovery_path(&dir)
@@ -204,6 +241,7 @@ impl MotixApp {
             recovery_file,
             last_recovery_write: None,
             title: String::new(),
+            helper_download: None,
         }
     }
 
@@ -228,6 +266,77 @@ impl MotixApp {
             let _ = motix_app::document::write_atomically(path, &state.recovery_bytes(path));
             let _ = std::fs::remove_file(path.with_extension("motix.bak"));
             self.last_recovery_write = Some(std::time::Instant::now());
+        }
+    }
+
+    /// Starts downloading the video helper in the background.
+    fn download_helper(&mut self) {
+        if self.helper_download.is_some() {
+            return;
+        }
+        let state = Arc::new(Mutex::new(HelperDownload::Running(0, None)));
+        let bases = helper_bases(self.layout.as_ref());
+        let worker_state = Arc::clone(&state);
+        let set = move |s: HelperDownload| {
+            *worker_state.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = s;
+        };
+        let spawned = std::thread::Builder::new()
+            .name("motix-helper-download".to_owned())
+            .spawn(move || {
+                let http = UreqHttp::new(&format!(
+                    "MOTIX/{} (+https://github.com/{RELEASE_REPO})",
+                    version_text()
+                ));
+                // The shared folder first (if this PC may write there), then this PC.
+                let base = bases.iter().find(|b| std::fs::create_dir_all(b).is_ok()).cloned();
+                let result = match base {
+                    None => Err("there's no folder MOTIX can save it in".to_owned()),
+                    Some(base) => {
+                        let mut last = std::time::Instant::now();
+                        motix_media::helper::download(&http, &base, &mut |done, total| {
+                            if last.elapsed() > Duration::from_millis(200) {
+                                last = std::time::Instant::now();
+                                set(HelperDownload::Running(done, total));
+                            }
+                        })
+                    }
+                };
+                set(HelperDownload::Done(result));
+            });
+        if spawned.is_ok() {
+            self.helper_download = Some(state);
+        } else {
+            self.ui.set_helper_status(motix_ui::HelperStatus::Failed(
+                "MOTIX couldn't start the download".into(),
+            ));
+        }
+    }
+
+    fn poll_helper_download(&mut self) {
+        let Some(state) = &self.helper_download else { return };
+        let mut guard = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match &*guard {
+            HelperDownload::Running(done, total) => {
+                self.ui
+                    .set_helper_status(motix_ui::HelperStatus::Downloading(*done, *total));
+            }
+            HelperDownload::Done(_) => {
+                let HelperDownload::Done(result) = std::mem::replace(&mut *guard, HelperDownload::Running(0, None))
+                else {
+                    return;
+                };
+                drop(guard);
+                self.helper_download = None;
+                match result {
+                    Ok(tools) => {
+                        self.ui.set_helper_status(motix_ui::HelperStatus::Hidden);
+                        self.ui.attach_media(Some(tools));
+                        "The video helper is ready — your clips now show and play."
+                            .clone_into(&mut self.ui.state_mut().status);
+                    }
+                    Err(why) => self.ui.set_helper_status(motix_ui::HelperStatus::Failed(why)),
+                }
+            }
         }
     }
 
@@ -374,6 +483,7 @@ impl MotixApp {
 impl eframe::App for MotixApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.ui.set_update_info(self.update_info());
+        self.poll_helper_download();
         self.ui.show(ui);
         self.keep_recovery_copy();
         let title = format!(
@@ -395,6 +505,7 @@ impl eframe::App for MotixApp {
                 Request::SaveOwnerSetup { text } => Self::save_owner_setup(&text),
                 Request::PickLabFiles { collection } => self.pick_lab_files(collection),
                 Request::PickUpscaleAfter { index } => self.pick_upscale_after(index),
+                Request::DownloadVideoHelper => self.download_helper(),
                 Request::Quit => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
                 Request::CheckForUpdates => {
                     if let Ok(u) = &self.updater {

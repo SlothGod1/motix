@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 motix-core.workspace = true
 motix-app.workspace = true
+motix-media.workspace = true
 egui.workspace = true
 egui_tiles.workspace = true
 

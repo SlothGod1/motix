@@ -435,6 +435,13 @@ impl AppState {
 
     // ----- project files -----
 
+    /// A number that changes with every edit, undo and redo (for things that must
+    /// follow the project, like preview sound).
+    #[must_use]
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
     /// `true` when there are changes that haven't been saved.
     #[must_use]
     pub fn is_dirty(&self) -> bool {

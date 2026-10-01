@@ -8,7 +8,7 @@ collaboration and an optional self-hosted server.
 > panels, a DaVinci Resolve-style timeline (tracks named after your files, linked video/audio, move, trim,
 > blade, markers, undo), instant media inspection (size, frame rate, HDR), typed project size and frame rate,
 > signed automatic updates (also for PCs that run MOTIX from a shared folder on your network), saving and
-> opening projects with crash recovery, and an owner-only Creator Lab. Video playback is next.
+> opening projects with crash recovery, real video and sound in the viewer, and an owner-only Creator Lab.
 
 ## What it will be
 

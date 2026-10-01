@@ -57,7 +57,8 @@ impl UreqHttp {
             .max_redirects(5)
             .user_agent(user_agent)
             .timeout_connect(Some(Duration::from_secs(20)))
-            .timeout_recv_body(Some(Duration::from_mins(1)))
+            // Whole-body limit: generous, so a slow connection can still fetch the video helper.
+            .timeout_recv_body(Some(Duration::from_mins(30)))
             .http_status_as_error(false)
             .build()
             .into();

@@ -80,6 +80,23 @@ pub enum Request {
         /// Which comparison.
         index: usize,
     },
+    /// Download the video helper (FFmpeg) in the background; report with
+    /// [`MotixUi::set_helper_status`] and finish with [`MotixUi::attach_media`].
+    DownloadVideoHelper,
+}
+
+/// Where getting the video helper stands (set by the host).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum HelperStatus {
+    /// Nothing to show (the helper is there, or can't be downloaded on this system).
+    #[default]
+    Hidden,
+    /// Missing; offer to download it.
+    Offer,
+    /// Downloading: bytes so far, total if known.
+    Downloading(u64, Option<u64>),
+    /// The last try failed (why, in plain language).
+    Failed(String),
 }
 
 /// Transient UI-only state (never part of the project document).
@@ -101,6 +118,8 @@ pub(crate) struct UiState {
     pub allow_close: bool,
     /// The owner-only Creator Lab.
     pub lab: lab::LabView,
+    /// The decoded picture the viewer shows.
+    pub preview: viewer::Preview,
 }
 
 /// The whole MOTIX window.
@@ -112,6 +131,21 @@ pub struct MotixUi {
     update_info: motix_app::UpdateInfo,
     gpu_info: String,
     themed: bool,
+    media: MediaPlayback,
+    helper: HelperStatus,
+}
+
+/// Video and sound for the viewer (absent in tests and when FFmpeg is missing).
+#[derive(Default)]
+struct MediaPlayback {
+    tools: Option<motix_media::Tools>,
+    video: Option<motix_media::VideoEngine>,
+    audio: motix_media::AudioPlayer,
+    wired_repaint: bool,
+    last_request: Option<motix_media::VideoRequest>,
+    generation: u64,
+    /// Where sound started (timeline time, wall clock) and the project revision then.
+    audio_anchor: Option<(motix_core::Time, std::time::Instant, u64)>,
 }
 
 impl MotixUi {
@@ -132,12 +166,15 @@ impl MotixUi {
                 recovery: Vec::new(),
                 allow_close: false,
                 lab: lab::LabView::default(),
+                preview: viewer::Preview::default(),
             },
             tree: panes::default_layout(),
             requests: Vec::new(),
             update_info: motix_app::UpdateInfo::default(),
             gpu_info: gpu_info.into(),
             themed: false,
+            media: MediaPlayback::default(),
+            helper: HelperStatus::Hidden,
         }
     }
 
@@ -209,6 +246,146 @@ impl MotixUi {
     /// Opens a project chosen in the "open" dialog (or given when MOTIX started).
     pub fn open_project(&mut self, path: &std::path::Path) {
         let _ = self.state.open_file(path);
+    }
+
+    /// Tells the UI whether to offer, or show progress of, the video helper download.
+    pub fn set_helper_status(&mut self, status: HelperStatus) {
+        self.helper = status;
+    }
+
+    fn helper_banner(&mut self, ui: &mut egui::Ui) {
+        let text = match &self.helper {
+            HelperStatus::Hidden => return,
+            HelperStatus::Offer => format!(
+                "To see and hear your clips, MOTIX needs its free video helper (FFmpeg, about {} MB, downloaded once).",
+                motix_media::helper::DOWNLOAD_MB
+            ),
+            HelperStatus::Downloading(done, total) => match total {
+                Some(t) if *t > 0 => format!("Downloading the video helper… {}%", done.saturating_mul(100) / t),
+                _ => format!("Downloading the video helper… {} MB", done / 1_000_000),
+            },
+            HelperStatus::Failed(why) => format!("Couldn't get the video helper: {why}."),
+        };
+        egui::Frame::new()
+            .fill(theme::ACCENT.linear_multiply(0.25))
+            .inner_margin(egui::Margin::symmetric(10, 5))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(text).strong());
+                    let label = match self.helper {
+                        HelperStatus::Offer => Some("Download"),
+                        HelperStatus::Failed(_) => Some("Try again"),
+                        _ => None,
+                    };
+                    if let Some(label) = label
+                        && ui.button(label).clicked()
+                    {
+                        self.helper = HelperStatus::Downloading(0, None);
+                        self.requests.push(Request::DownloadVideoHelper);
+                    }
+                });
+            });
+    }
+
+    /// Gives the UI the FFmpeg helpers for real pictures and sound (`None`: they
+    /// weren't found, and the viewer says so).
+    pub fn attach_media(&mut self, tools: Option<motix_media::Tools>) {
+        self.media.audio.stop();
+        self.media.video = tools.clone().map(motix_media::VideoEngine::start);
+        self.media.wired_repaint = false;
+        self.media.last_request = None;
+        self.ui_state.preview.note = tools.is_none().then(|| {
+            if motix_media::helper::can_download() {
+                "Video preview needs MOTIX's video helper (FFmpeg). Use the Download button at the top of \
+                 the window — it's free and only needed once."
+                    .to_owned()
+            } else {
+                "Video preview needs FFmpeg. Install it with your system's package manager (for example \
+                 \u{201c}sudo apt install ffmpeg\u{201d}) and restart MOTIX."
+                    .to_owned()
+            }
+        });
+        self.media.tools = tools;
+    }
+
+    /// The clip whose decoded picture the viewer is showing, if any.
+    #[must_use]
+    pub fn preview_clip(&self) -> Option<motix_app::ClipId> {
+        self.ui_state.preview.texture.as_ref().and(self.ui_state.preview.clip)
+    }
+
+    /// Keeps the viewer's picture and the sound in step with the playhead.
+    fn update_preview(&mut self, ctx: &egui::Context) {
+        let Some(engine) = &self.media.video else { return };
+        if !self.media.wired_repaint {
+            let c = ctx.clone();
+            engine.on_new_frame(move || c.request_repaint());
+            self.media.wired_repaint = true;
+        }
+        let s = &self.state;
+        let request = motix_media::plan::video_target(&s.timeline, &s.media, s.playhead).map(|target| {
+            motix_media::VideoRequest {
+                target,
+                playing: s.playing,
+                fps: s.project.frame_rate,
+            }
+        });
+        if request != self.media.last_request {
+            engine.show(request.clone());
+            self.media.last_request = request;
+        }
+        let (generation, frame) = engine.latest();
+        if generation != self.media.generation {
+            self.media.generation = generation;
+            let preview = &mut self.ui_state.preview;
+            match frame {
+                Some(f) => {
+                    let image =
+                        egui::ColorImage::from_rgba_unmultiplied([f.width as usize, f.height as usize], &f.rgba);
+                    match &mut preview.texture {
+                        Some(t) => t.set(image, egui::TextureOptions::LINEAR),
+                        None => {
+                            preview.texture =
+                                Some(ctx.load_texture("motix_preview", image, egui::TextureOptions::LINEAR));
+                        }
+                    }
+                    preview.clip = Some(f.clip);
+                }
+                None => preview.clip = None,
+            }
+            if let Some(why) = engine.problem() {
+                preview.note = Some(why);
+            }
+        }
+        self.update_sound();
+    }
+
+    fn update_sound(&mut self) {
+        let Some(tools) = self.media.tools.clone() else { return };
+        let s = &self.state;
+        if !s.playing {
+            if self.media.audio_anchor.take().is_some() {
+                self.media.audio.stop();
+            }
+            return;
+        }
+        let restart = match self.media.audio_anchor {
+            None => true,
+            Some((t0, started, revision)) => {
+                let expected = motix_media::plan::seconds(t0) + started.elapsed().as_secs_f64();
+                let now = motix_media::plan::seconds(s.playhead);
+                revision != s.revision()
+                    || (now - expected).abs() > 0.5
+                    || now - motix_media::plan::seconds(t0) > motix_media::plan::AUDIO_WINDOW_SECONDS - 5.0
+            }
+        };
+        if restart {
+            let plan = motix_media::plan::audio_plan(&s.timeline, &s.media, s.playhead);
+            if let Err(why) = self.media.audio.play(&tools, &plan) {
+                self.ui_state.preview.note = Some(why);
+            }
+            self.media.audio_anchor = Some((s.playhead, std::time::Instant::now(), s.revision()));
+        }
     }
 
     /// Tells the Creator Lab where to keep its library and remember the owner on this
@@ -375,10 +552,12 @@ impl MotixUi {
         self.handle_dropped_files(&ctx);
         self.handle_shortcuts(&ctx);
         self.tick_playback(&ctx);
+        self.update_preview(&ctx);
 
         egui::Panel::top("motix_top_bar").show(ui, |ui| {
             self.top_bar(ui);
             updates::banner(ui, &mut self.ui_state.updates, &self.update_info, &mut self.requests);
+            self.helper_banner(ui);
         });
         egui::Panel::bottom("motix_status_bar").show(ui, |ui| self.status_bar(ui));
         if self.ui_state.lab.open {

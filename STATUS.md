@@ -1,8 +1,12 @@
 # MOTIX — Current status and hand-off
 
-Last updated: 2026-10-01
+Last updated: 2026-10-02
 
 ## Where things stand
+- **Playback** (ADR-034): `motix-media` runs the FFmpeg programs. Windows: a banner offers a one-time download of Gyan
+  essentials 9.0.2 (pinned URL + SHA-256 in `motix_media::helper`) into the shared folder's `tools\` or
+  `%LOCALAPPDATA%\MOTIX\tools`; Linux: system ffmpeg. Viewer shows real frames; sound mixed by ffmpeg, played by ffplay.
+  (CI was deliberately left unchanged — no `.github` edit needed.)
 - Releases come from GitHub CI (Claude's sandbox can't build Windows programs). Latest pushed: shared network
   folder (ADR-031, preview 4).
 - This change: **save / open projects** (ADR-032: JSON `.motix`, atomic save + `.bak`, unsaved-changes prompts,
@@ -13,11 +17,14 @@ Last updated: 2026-10-01
 - Update-signing public key compiled into MOTIX: `7764ad35…526b`; secret only in the Actions secret + owner backup.
 
 ## Next steps
-1. **Video + audio playback** (M1 remainder). Plan: ship a pinned GPL FFmpeg build next to `motix.exe` (CI change in
-   `.github` → owner copies the file), decode in a separate process into the viewer (interim for ADR-005's
-   libav worker), audio via cpal; GPL source offer for the FFmpeg build (Verify).
-2. Creator Lab analysis (ADR-033 AI plan): shot detection + beats first, then faces/scene packs (Verify model licences).
-3. M2: export (vertical MP4).
+1. **Scene Library** (owner's order: playback → Scene Library → effects engine → Effect Studio; upscaler training
+   later). Owner-only, in the Creator Lab, separate from editor projects. Add many videos/seasons → analyse once in
+   the background (shots, faces, speech, camera motion, look) on his RTX 4070 Ti Super → text prompts (people &
+   actions, mood & look, camera moves, dialogue/quotes) → results → packs (in MOTIX + export files). Person by
+   clicking a face, a photo, or a name (name needs the optional online AI, decided later).
+2. Effects/transitions engine with a starter set for everyone; then **Effect Studio**: edit + prompt ("what I like,
+   what to add") → draft effect with sliders → Publish ships it in the next update to everyone's Effects panel.
+3. Export (vertical MP4); layer compositing; FFmpeg as a separate download so updates stay small.
 
 ## Environment notes
 - Local builds are developer builds (`0.1.0-dev`, updates off). Set `MOTIX_VERSION` at build time to stamp.

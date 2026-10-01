@@ -104,6 +104,8 @@ credit given unless you prefer otherwise.
 
 **Creator Lab owner password (ADR-033).** Only a random salt and SHA-256(Argon2id(password)) with 64 MiB / 3 passes are in the public code; the remembered unlock is the derived key in the user's own app-data folder. Minimum 12 characters. The password must never be typed into a chat or a GitHub issue. This gates the official build's UI; it is not a security boundary against someone who builds their own copy.
 
+**Preview helpers (ADR-034).** Media is decoded by the FFmpeg programs in their own processes (a crash or exploit attempt there doesn't run inside MOTIX). They are started with argument lists (no shell, so file names can't inject commands), no standard input and no console window; output sizes are fixed and checked; the Windows build is downloaded by MOTIX (only when the user clicks Download) from a pinned HTTPS URL and accepted only if it matches the SHA-256 built into MOTIX; only `ffmpeg`, `ffplay` and the licence are unpacked (safe paths, size caps). OS sandboxing of these helpers comes with the libav worker (S-13).
+
 ### 3.8 AI models
 - Only ONNX/GGUF formats (no pickle / arbitrary code deserialization).
 - Pinned hashes in TUF-signed catalog; downloaded over HTTPS and verified; inference in `motix-ai-worker` with the same sandboxing as media workers.

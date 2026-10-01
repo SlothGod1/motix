@@ -28,7 +28,7 @@ Derived from the product specification and [ANALYSIS.md](ANALYSIS.md). IDs are s
 | R-EDT-1 | Works fully offline: create, edit, render, export, save, recover. | | 1 |
 | R-EDT-2 | Import common media (MP4/MOV/MKV/WebM; H.264/HEVC/AV1/VP9/ProRes/DNx decode; AAC/MP3/Opus/FLAC/WAV; PNG/JPEG/WebP/TIFF/EXR/HEIC stills; image sequences), including phone HDR footage (HLG, HDR10+, Dolby Vision). | ⚖️🔒 | 1–3, 7 |
 | R-EDT-3 | Timeline with multiple video and audio tracks, trim, split, move, ripple delete, snapping, undo/redo. | | 1–3 |
-| R-EDT-4 | Real-time preview with audio sync, adaptive quality and proxies; UI never freezes during renders. | ⚡ | 1–3 |
+| R-EDT-4 | Real-time preview with audio sync, adaptive quality and proxies; UI never freezes during renders. *(First version done — ADR-034: real frames while scrubbing and playing, HDR tone-mapped, mixed sound; proxies and layer compositing to come.)* | ⚡ | 1–3 |
 | R-EDT-5 | Keyframes for transform, opacity and effect parameters with easing. | | 3 |
 | R-EDT-6 | Text layers and captions with full Unicode shaping, RTL, emoji and styling. | ⚡ | 3 |
 | R-EDT-7 | Vertical, square, landscape and custom resolutions; safe-area overlays for major platforms. | | 3 |

@@ -56,6 +56,7 @@ GPL obligations we must meet on every release: ship or link the complete corresp
 ### 2.2 Media
 | Dependency | License | Intended use | Commercial-use implications | Patent concerns | Cost | Alternatives |
 |------------|---------|--------------|-----------------------------|-----------------|------|--------------|
+| FFmpeg programs (ffmpeg.exe, ffplay.exe; Gyan "essentials" 9.0.2, GPLv3) | GPL-3.0 | Preview decoding and sound now (ADR-034); downloaded once from the publisher's GitHub release on the user's request (pinned SHA-256) | Licence + source pointers saved beside it | As below | $0 | libav worker (ADR-005) |
 | FFmpeg (libav*) | LGPL-2.1-or-later; **GPL-2.0-or-later if built with GPL parts** | Demux, decode, encode, mux | LGPL: dynamic link, ship source/offer, allow relinking, list configure flags. GPL build makes the combined work GPL. | FFmpeg implements patented codecs (H.264, HEVC, AAC…). Distributing binaries may require patent licenses in some jurisdictions. | $0 | GStreamer |
 | dav1d | BSD-2-Clause | AV1 decode | Notice | AOM royalty-free patent license; third-party pool claims exist | $0 | libaom |
 | SVT-AV1 | BSD-3-Clause-Clear + AOM Patent License 1.0 (**Verify** current terms) | AV1 encode | Notice | As above | $0 | libaom, rav1e (BSD-2) |

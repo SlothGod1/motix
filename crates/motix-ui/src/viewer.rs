@@ -1,13 +1,24 @@
 //! The viewer: the project frame at its true shape, what's on the timeline at the
 //! playhead (placed with its fit mode), safe-area guides and transport controls.
 //!
-//! Pictures are shown as labelled placeholders until video decoding arrives; their
-//! position and size are already exactly what the finished video will use.
+//! The picture comes from the FFmpeg helper (`motix-media`); until a frame arrives
+//! (or without the helper) a labelled placeholder shows exactly where it will go.
 
 use crate::theme;
-use motix_app::{Action, AppState, MediaKind};
+use motix_app::{Action, AppState, ClipId, MediaKind};
 
-pub(crate) fn show(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
+/// The decoded picture for the viewer.
+#[derive(Default)]
+pub(crate) struct Preview {
+    /// The newest frame.
+    pub texture: Option<egui::TextureHandle>,
+    /// The clip that frame belongs to.
+    pub clip: Option<ClipId>,
+    /// Why there's no picture (no helper, or it failed), in plain language.
+    pub note: Option<String>,
+}
+
+pub(crate) fn show(ui: &mut egui::Ui, state: &AppState, preview: &Preview, actions: &mut Vec<Action>) {
     let full = ui.available_rect_before_wrap();
     let transport_h = 40.0;
     let backdrop = egui::Rect::from_min_max(full.min, egui::pos2(full.max.x, full.max.y - transport_h));
@@ -28,7 +39,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action
             canvas.min + egui::vec2(x as f32 * scale, y as f32 * scale),
             egui::vec2(w as f32 * scale, h as f32 * scale),
         );
-        let kind = state.media.get(clip.media).map_or(MediaKind::Video, |m| m.kind);
+        let item = state.media.get(clip.media);
+        let kind = item.map_or(MediaKind::Video, |m| m.kind);
+        let picture = preview.texture.as_ref().filter(|_| preview.clip == Some(clip.id));
         let color = if kind == MediaKind::Image {
             theme::IMAGE
         } else {
@@ -42,25 +55,42 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action
             egui::StrokeKind::Inside,
         );
         let inside = painter.with_clip_rect(canvas);
-        inside.rect_filled(pic, 0.0, color.linear_multiply(0.28));
-        // A simple grid so scaling and cropping are visible.
-        for i in 1..4 {
+        if let Some(texture) = picture {
+            inside.image(
+                texture.id(),
+                pic,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+        } else {
+            inside.rect_filled(pic, 0.0, color.linear_multiply(0.28));
+        }
+        // A simple grid so scaling and cropping are visible (placeholder only).
+        for i in (1..4).filter(|_| picture.is_none()) {
             let fx = pic.min.x + pic.width() * i as f32 / 4.0;
             let fy = pic.min.y + pic.height() * i as f32 / 4.0;
             let stroke = egui::Stroke::new(1.0, color.linear_multiply(0.25));
             inside.line_segment([egui::pos2(fx, pic.min.y), egui::pos2(fx, pic.max.y)], stroke);
             inside.line_segment([egui::pos2(pic.min.x, fy), egui::pos2(pic.max.x, fy)], stroke);
         }
-        inside.rect_stroke(pic, 0.0, egui::Stroke::new(1.5, color), egui::StrokeKind::Inside);
+        if picture.is_none() {
+            inside.rect_stroke(pic, 0.0, egui::Stroke::new(1.5, color), egui::StrokeKind::Inside);
+        }
         let placement = if source == project {
             format!("{source} · same size as the project")
         } else {
             format!("{source} · {}", clip.fit.label().to_lowercase())
         };
-        (
-            clip.name.clone(),
-            format!("{placement}\nVideo playback arrives in the next update."),
-        )
+        let status = if picture.is_some() {
+            String::new()
+        } else if item.is_some_and(|m| m.size_bytes.is_none()) {
+            "This file can't be found. Put it back (or reopen the project next to it) to see it.".to_owned()
+        } else if let Some(note) = &preview.note {
+            note.clone()
+        } else {
+            "Loading the picture…".to_owned()
+        };
+        (clip.name.clone(), format!("{placement}\n{status}"))
     } else if state.timeline.is_empty() {
         match state.selected_media.and_then(|m| state.media.get(m)) {
             Some(item) => (
@@ -95,12 +125,15 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action
         job.halign = egui::Align::Center;
         ui.fonts_mut(|f| f.layout_job(job))
     };
-    let head = centred(&headline, 18.0, theme::TEXT);
-    let sub = centred(&detail, 12.5, theme::TEXT_WEAK);
-    let top = canvas.center().y - (head.size().y + 6.0 + sub.size().y) / 2.0;
-    let head_h = head.size().y;
-    painter.galley(egui::pos2(canvas.center().x, top), head, theme::TEXT);
-    painter.galley(egui::pos2(canvas.center().x, top + head_h + 6.0), sub, theme::TEXT_WEAK);
+    let showing_picture = clip.is_some_and(|c| preview.clip == Some(c.id) && preview.texture.is_some());
+    if !showing_picture {
+        let head = centred(&headline, 18.0, theme::TEXT);
+        let sub = centred(&detail, 12.5, theme::TEXT_WEAK);
+        let top = canvas.center().y - (head.size().y + 6.0 + sub.size().y) / 2.0;
+        let head_h = head.size().y;
+        painter.galley(egui::pos2(canvas.center().x, top), head, theme::TEXT);
+        painter.galley(egui::pos2(canvas.center().x, top + head_h + 6.0), sub, theme::TEXT_WEAK);
+    }
 
     if state.show_safe_areas {
         let (left, top, right, bottom) = project.safe_insets();

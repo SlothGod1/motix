@@ -591,6 +591,55 @@ fn creator_lab_is_owner_only() {
 }
 
 #[test]
+fn the_viewer_shows_real_pictures() {
+    let Some(tools) = motix_media::Tools::find(&[]) else {
+        eprintln!("FFmpeg not installed here; skipping");
+        return;
+    };
+    let mut h = harness();
+    h.state_mut().attach_media(Some(tools));
+    h.state_mut().state_mut().match_asked = true;
+    h.state_mut().import(vec![fixture("h264_aac_2997.mp4")]);
+    let id = h.state().state().media.items()[0].id;
+    h.state_mut().state_mut().add_to_timeline(id, None, None).unwrap();
+    let clip = h.state().state().timeline.clips()[0].id;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.state().preview_clip() != Some(clip) && std::time::Instant::now() < deadline {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(
+        h.state().preview_clip(),
+        Some(clip),
+        "a decoded frame reached the viewer"
+    );
+
+    // Without the helper, the viewer explains what's missing.
+    let mut h = harness();
+    h.state_mut().attach_media(None);
+    h.state_mut().state_mut().match_asked = true;
+    h.state_mut().import(vec![fixture("h264_aac_2997.mp4")]);
+    let id = h.state().state().media.items()[0].id;
+    h.state_mut().state_mut().add_to_timeline(id, None, None).unwrap();
+    h.run();
+    assert!(
+        h.query_by_label_contains("Video preview needs").is_some(),
+        "explains the missing helper"
+    );
+    // The download offer.
+    h.state_mut().set_helper_status(motix_ui::HelperStatus::Offer);
+    h.run();
+    h.get_by_label("Download").click();
+    h.run();
+    assert_eq!(h.state_mut().take_requests(), vec![Request::DownloadVideoHelper]);
+    h.get_by_label_contains("Downloading the video helper");
+    h.state_mut()
+        .set_helper_status(motix_ui::HelperStatus::Failed("no internet connection".into()));
+    h.run();
+    h.get_by_label("Try again");
+}
+
+#[test]
 fn unavailable_features_say_so_plainly() {
     let mut h = harness();
     h.state_mut().perform(Action::Export);
@@ -742,4 +791,31 @@ fn screenshots() {
     h3.run();
     h3.render().unwrap().save(out.join("09-lab-library.png")).unwrap();
     let _ = std::fs::remove_dir_all(lab_dir);
+
+    // Real pictures in the viewer (needs FFmpeg on this machine).
+    if let Some(tools) = motix_media::Tools::find(&[]) {
+        let mut h4 = Harness::builder()
+            .with_size(egui::vec2(1440.0, 900.0))
+            .wgpu()
+            .build_ui_state(
+                |ui, app: &mut MotixUi| app.show(ui),
+                MotixUi::new("Software renderer (test)"),
+            );
+        h4.state_mut().attach_media(Some(tools));
+        h4.state_mut()
+            .import(vec![fixture("h264_aac_2997.mp4"), fixture("stereo_48k.wav")]);
+        let first = h4.state().state().media.items()[0].id;
+        let _ = h4.state_mut().state_mut().add_to_timeline(first, None, None);
+        h4.run();
+        if h4.query_by_label("Match project").is_some() {
+            h4.get_by_label("Match project").click();
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while h4.state().preview_clip().is_none() && std::time::Instant::now() < deadline {
+            h4.step();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        h4.run();
+        h4.render().unwrap().save(out.join("10-real-picture.png")).unwrap();
+    }
 }

@@ -70,7 +70,7 @@ impl egui_tiles::Behavior<Pane> for Behavior<'_> {
         let mut content = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(8.0)));
         match pane {
             Pane::Media => media_panel::show(&mut content, self.state, &mut self.actions),
-            Pane::Viewer => viewer::show(&mut content, self.state, &mut self.actions),
+            Pane::Viewer => viewer::show(&mut content, self.state, &self.ui_state.preview, &mut self.actions),
             Pane::Inspector => {
                 inspector::show(&mut content, self.state, &mut self.ui_state.settings, &mut self.actions);
             }
