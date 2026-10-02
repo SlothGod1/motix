@@ -75,6 +75,8 @@ pub struct UpdateInfo {
     pub install_on_exit: bool,
     /// Where updates come from, in plain language.
     pub source_text: String,
+    /// The network folder this copy also gets updates from, if one is set.
+    pub update_folder: Option<String>,
     /// Network sharing.
     pub sharing: SharingInfo,
 }
@@ -88,6 +90,7 @@ impl Default for UpdateInfo {
             last_checked: None,
             install_on_exit: false,
             source_text: String::new(),
+            update_folder: None,
             sharing: SharingInfo::default(),
         }
     }

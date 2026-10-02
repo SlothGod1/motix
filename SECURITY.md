@@ -106,6 +106,8 @@ credit given unless you prefer otherwise.
 
 **Preview helpers (ADR-034).** Media is decoded by the FFmpeg programs in their own processes (a crash or exploit attempt there doesn't run inside MOTIX). They are started with argument lists (no shell, so file names can't inject commands), no standard input and no console window; output sizes are fixed and checked; the Windows build is downloaded by MOTIX (only when the user clicks Download) from a pinned HTTPS URL and accepted only if it matches the SHA-256 built into MOTIX; only `ffmpeg`, `ffplay` and the licence are unpacked (safe paths, size caps). OS sandboxing of these helpers comes with the libav worker (S-13).
 
+**Home build server (ADR-036).** The signing key is stored in `%LOCALAPPDATA%\MOTIX-build` with an ACL limited to the owner's Windows account and is read from that file by `xtask publish` (never on a command line or in a log). Published folders get the same signed, version-pinned manifest as GitHub releases, written signature-last. If the server is compromised, treat the key as leaked (see above).
+
 ### 3.8 AI models
 - Only ONNX/GGUF formats (no pickle / arbitrary code deserialization).
 - Pinned hashes in TUF-signed catalog; downloaded over HTTPS and verified; inference in `motix-ai-worker` with the same sandboxing as media workers.

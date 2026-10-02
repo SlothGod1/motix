@@ -6,3 +6,6 @@ Thumbs.db
 
 # Never commit update-signing secrets.
 *signing-key*
+
+# Build-server signal (ADR-036).
+.motix-build-ready

@@ -11,6 +11,9 @@ publish.workspace = true
 ed25519-dalek.workspace = true
 sha2.workspace = true
 getrandom.workspace = true
+motix-update.workspace = true
+semver.workspace = true
+zip.workspace = true
 
 [lints]
 workspace = true

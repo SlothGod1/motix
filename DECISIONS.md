@@ -385,3 +385,13 @@ Code licenses (GPL, LGPL, BSD) do **not** grant patent rights. H.264, HEVC and A
   2. **Effect Studio** — an edit he loves + a prompt ("what I like, what to add") → a draft transition/effect with sliders → tested on his clips → **Publish** ships it to everyone's Effects panel in the next signed update. Needs the effects/transitions engine first (which also gets a starter set for everyone).
 - AI runs locally (free, private; one-time model download); an online AI is optional and chosen later.
 - Upscaler training is postponed.
+
+### ADR-036 — Home build server while GitHub is set aside
+- **Problem:** the owner wants updates to come from his own server for now, and GitHub only when MOTIX is ready. GitHub currently does two jobs: it **builds** the Windows program (Claude's sandbox can't) and **hosts** releases.
+- **Chosen:**
+  - **Building moves to the server.** `tools/build-server/Set up MOTIX build server.cmd` (run once) installs Rust and the Visual Studio C++ Build Tools with winget if missing, stores the existing update-signing key in `%LOCALAPPDATA%\MOTIX-build` (only that Windows account can read it; the owner keeps his own backup), asks for the publish folder, and adds a "MOTIX build server" scheduled task (every minute, `conhost --headless`, only while signed in).
+  - **Each update:** Claude writes the changed files into the `motix` clone, checks them, and writes `.motix-build-ready` (its text is the release notes). The task builds version `<workspace version>-server.<yyyyMMddHHmm>` and runs `xtask publish`, which writes the archive, version-pinned `SHA256SUMS` and its Ed25519 signature into the publish folder, signature last. Results go to `MOTIX build status.txt` / `MOTIX build log.txt` next to the clone, which Claude reads to confirm.
+  - **Hosting:** the publish folder — normally the shared MOTIX folder's `updates` (ADR-031), which shared copies already check. Own copies get **Help > Check for updates > Get updates from a folder on your network**; they keep checking GitHub too, and the newest signed version wins.
+  - **Versions:** the workspace version moves to 0.2.0; `-server.<timestamp>` sorts after GitHub's `-preview.<n>` of the same version, so a server build always counts as newer.
+- **Consequences:** no GitHub step and no screen control per update; the server must be on and signed in. The signing key now also lives on the server (private folder) — if that PC is compromised, rotate the key (SECURITY §3.7). One last GitHub release delivers this feature to existing copies.
+- **Later (when MOTIX goes back to GitHub):** remove the task, push the accumulated work, CI resumes releasing; `-server` builds remain valid history.

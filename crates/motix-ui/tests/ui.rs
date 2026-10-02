@@ -640,6 +640,26 @@ fn the_viewer_shows_real_pictures() {
 }
 
 #[test]
+fn updates_can_come_from_a_network_folder() {
+    let mut h = harness();
+    h.state_mut().perform(Action::CheckForUpdates);
+    h.run();
+    let _ = h.state_mut().take_requests();
+    h.get_by_label("Get updates from a folder on your network…").click();
+    h.run();
+    assert_eq!(h.state_mut().take_requests(), vec![Request::PickUpdateFolder]);
+    h.state_mut().set_update_info(UpdateInfo {
+        update_folder: Some(r"\\ANDREWSNEWSERVER\MOTIX\updates".into()),
+        ..UpdateInfo::default()
+    });
+    h.run();
+    h.get_by_label(r"Update folder: \\ANDREWSNEWSERVER\MOTIX\updates");
+    h.get_by_label("Stop using it").click();
+    h.run();
+    assert_eq!(h.state_mut().take_requests(), vec![Request::ClearUpdateFolder]);
+}
+
+#[test]
 fn unavailable_features_say_so_plainly() {
     let mut h = harness();
     h.state_mut().perform(Action::Export);

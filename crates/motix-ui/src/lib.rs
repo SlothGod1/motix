@@ -80,6 +80,10 @@ pub enum Request {
         /// Which comparison.
         index: usize,
     },
+    /// Ask for a network folder to get updates from (the home build server).
+    PickUpdateFolder,
+    /// Stop getting updates from the network folder.
+    ClearUpdateFolder,
     /// Download the video helper (FFmpeg) in the background; report with
     /// [`MotixUi::set_helper_status`] and finish with [`MotixUi::attach_media`].
     DownloadVideoHelper,

@@ -35,12 +35,16 @@ fn version_text() -> String {
 #[serde(default)]
 struct Settings {
     auto_check_updates: bool,
+    /// A folder on the network that new versions are published to (the home build
+    /// server, ADR-036), checked as well as GitHub.
+    update_folder: Option<PathBuf>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             auto_check_updates: true,
+            update_folder: None,
         }
     }
 }
@@ -74,34 +78,46 @@ fn layout() -> Option<Layout> {
     std::env::current_exe().ok().map(|exe| Layout::detect(&exe))
 }
 
-/// Where updates come from for `layout`.
-fn sources(layout: &Layout) -> Vec<Source> {
-    let github = Source::GitHub {
-        repo: RELEASE_REPO.to_owned(),
-    };
-    match layout {
-        Layout::Shared { root } => vec![
-            Source::Folder {
-                path: root.join(shared::UPDATES),
-            },
-            github,
-        ],
-        Layout::Portable { .. } => vec![github],
+/// Where updates come from: the shared folder's inbox (shared copies), the chosen
+/// network folder (the home build server, ADR-036), and GitHub. The newest wins.
+fn sources(layout: &Layout, settings: &Settings) -> Vec<Source> {
+    let mut out = Vec::new();
+    if let Layout::Shared { root } = layout {
+        out.push(Source::Folder {
+            path: root.join(shared::UPDATES),
+        });
     }
+    if let Some(folder) = &settings.update_folder
+        && !out
+            .iter()
+            .any(|s| matches!(s, Source::Folder { path } if path == folder))
+    {
+        out.push(Source::Folder { path: folder.clone() });
+    }
+    out.push(Source::GitHub {
+        repo: RELEASE_REPO.to_owned(),
+    });
+    out
 }
 
-fn source_text(layout: Option<&Layout>) -> String {
-    match layout {
-        Some(Layout::Shared { .. }) => {
-            "New versions come from the official MOTIX releases on GitHub, or from a release \
-                                        copied into the shared folder's 'updates' folder. Each is checked against \
-                                        MOTIX's signing key and installed once, for every PC."
-                .to_owned()
-        }
-        _ => "Updates come from the official MOTIX releases on GitHub and are checked against MOTIX's signing key \
-              before anything is installed."
-            .to_owned(),
+fn source_text(layout: Option<&Layout>, settings: &Settings) -> String {
+    let mut places = Vec::new();
+    if let Some(Layout::Shared { .. }) = layout {
+        places.push("the shared folder's 'updates' folder".to_owned());
     }
+    if let Some(folder) = &settings.update_folder {
+        places.push(folder.display().to_string());
+    }
+    places.push("the MOTIX releases on GitHub".to_owned());
+    format!(
+        "New versions come from {}. Each is checked against MOTIX's signing key before it's installed{}.",
+        places.join(", "),
+        if matches!(layout, Some(Layout::Shared { .. })) {
+            ", and installed once for every PC"
+        } else {
+            ""
+        }
+    )
 }
 
 fn pc_name() -> Option<String> {
@@ -123,7 +139,7 @@ fn start_updater(settings: &Settings, layout: Option<&Layout>) -> Result<Updater
         .map(|d| d.join("MOTIX").join("updates"))
         .ok_or("MOTIX couldn't find a place to keep downloads.")?;
     let config = Config {
-        sources: sources(&layout),
+        sources: sources(&layout, settings),
         current,
         archive_name: motix_update::platform_archive_name().to_owned(),
         include_prereleases: true,
@@ -269,6 +285,18 @@ impl MotixApp {
         }
     }
 
+    /// Remembers (or forgets) the network update folder and restarts the updater with it.
+    fn set_update_folder(&mut self, folder: Option<PathBuf>) {
+        self.settings.update_folder = folder;
+        self.settings.save();
+        // Stop the old updater before starting one with the new places to look.
+        self.updater = Err(String::new());
+        self.updater = start_updater(&self.settings, self.layout.as_ref());
+        if let Ok(u) = &self.updater {
+            u.check_now();
+        }
+    }
+
     /// Starts downloading the video helper in the background.
     fn download_helper(&mut self) {
         if self.helper_download.is_some() {
@@ -404,7 +432,8 @@ impl MotixApp {
             current_version: version_text(),
             auto_check: self.settings.auto_check_updates,
             install_on_exit: self.install_on_exit,
-            source_text: source_text(self.layout.as_ref()),
+            source_text: source_text(self.layout.as_ref(), &self.settings),
+            update_folder: self.settings.update_folder.as_ref().map(|p| p.display().to_string()),
             sharing: SharingInfo {
                 running_from: match &self.layout {
                     Some(Layout::Shared { root }) => Some(root.display().to_string()),
@@ -521,6 +550,15 @@ impl eframe::App for MotixApp {
                     }
                 }
                 Request::InstallUpdateOnExit => self.install_on_exit = true,
+                Request::PickUpdateFolder => {
+                    if let Some(folder) = rfd::FileDialog::new()
+                        .set_title("Choose the folder new versions of MOTIX are published to")
+                        .pick_folder()
+                    {
+                        self.set_update_folder(Some(folder));
+                    }
+                }
+                Request::ClearUpdateFolder => self.set_update_folder(None),
                 Request::ShareOnNetwork => self.share_on_network(),
                 Request::InstallUpdateNow => {
                     if let Ok(u) = &self.updater {

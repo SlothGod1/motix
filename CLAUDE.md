@@ -5,19 +5,16 @@ Read these first: `STATUS.md` (where things stand, what to do next), then `ARCHI
 never show milestone codes or jargon in the app's UI, and ask before big product decisions.
 
 ## Delivering work
-Two routes, both ending in the same automatic CI → signed release (ADR-027, ADR-029):
+**Now (ADR-036, GitHub set aside):** Claude builds and tests in its sandbox, writes the changed files into the
+owner's clone at `B:\Family\Andrew Cardone\Creation\Editing Software\motix` through the file bridge, stages them
+back and `cmp`s them, then writes `motix\.motix-build-ready` (its text = release notes). The owner's server
+builds, signs and publishes the update within a few minutes; read `Editing Software\MOTIX build status.txt`
+(and `MOTIX build log.txt` on failure) to confirm. No GitHub Desktop or screen control needed. Bridge limits:
+it can't write inside `.github\` or delete files, and it adds C2PA metadata to media files (MP4, MOV, M4A,
+WAV, PNG, JPEG) — never deliver byte-exact media through it.
 
-- **Cowork chat with the owner (main route, ADR-030):** Claude builds and tests in its sandbox,
-  then writes changed files into the owner's GitHub Desktop clone at
-  `B:\Family\Andrew Cardone\Creation\Editing Software\motix` through the file bridge. The owner
-  commits and clicks **Push origin** in GitHub Desktop. The bridge can't write into `.github\`: put
-  workflow changes in `Editing Software\_github\` and ask the owner to copy them over. It can't delete
-  files either: list deletions for the owner. It adds C2PA metadata to media files (MP4, MOV, M4A,
-  WAV, PNG, JPEG) in transit, so never deliver byte-exact media through it. Before asking the
-  owner to push, list the clone (`device_list_dir`) and check every file you meant to write arrived
-  (a missing `Cargo.toml` once broke the build).
-- **Claude Code session with the repo attached:** push only to the session's working branch
-  (`claude/...`); CI's `promote` job fast-forwards `main` when every check passes.
+**Later (back on GitHub):** commit + push from GitHub Desktop (ADR-030), or a Claude Code session with the repo
+attached pushing `claude/...` branches (ADR-029); CI tests, builds and publishes signed releases.
 
 Either way, only deliver finished, locally-verified work. Before delivering run:
 `cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked && cargo deny check`
@@ -28,5 +25,6 @@ Either way, only deliver finished, locally-verified work. Before delivering run:
   `AppState` methods so undo works.
 - UI tests: `crates/motix-ui/tests/ui.rs` (egui_kittest; use `with_step_dt(1/60)`, `with_max_steps(120)`).
   Screenshots: `MOTIX_SCREENSHOT_DIR=… cargo test -p motix-ui -- --ignored` (needs a GPU or Mesa).
-- Never commit secrets. The update-signing key lives only in the `MOTIX_UPDATE_SIGNING_KEY` Actions secret.
+- Never commit secrets. The update-signing key lives only in the `MOTIX_UPDATE_SIGNING_KEY` Actions secret and the
+  build server's private `%LOCALAPPDATA%\MOTIX-build` folder (ADR-036); never read, print or move it.
 - Docs are part of the change: update REQUIREMENTS/DECISIONS/PHASES/STATUS with each feature.

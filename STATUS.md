@@ -7,7 +7,9 @@ Last updated: 2026-10-02
   essentials 9.0.2 (pinned URL + SHA-256 in `motix_media::helper`) into the shared folder's `tools\` or
   `%LOCALAPPDATA%\MOTIX\tools`; Linux: system ffmpeg. Viewer shows real frames; sound mixed by ffmpeg, played by ffplay.
   (CI was deliberately left unchanged — no `.github` edit needed.)
-- Releases come from GitHub CI (Claude's sandbox can't build Windows programs). Latest pushed: shared network
+- **Updates now come from the owner's server (ADR-036):** deliver = write files + `.motix-build-ready`; check
+  `Editing Software\MOTIX build status.txt`. Workspace version 0.2.0 (`-server.<timestamp>` builds).
+- Releases came from GitHub CI (last: preview.8, which carries the update-folder option) (Claude's sandbox can't build Windows programs). Latest pushed: shared network
   folder (ADR-031, preview 4).
 - This change: **save / open projects** (ADR-032: JSON `.motix`, atomic save + `.bak`, unsaved-changes prompts,
   crash-recovery copy every minute) and the owner-only **Creator Lab** (ADR-033: Edits I love, Upscale

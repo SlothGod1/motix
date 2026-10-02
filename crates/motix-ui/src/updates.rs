@@ -120,6 +120,30 @@ pub(crate) fn window(ctx: &egui::Context, view: &mut UpdatesView, info: &UpdateI
             if !info.source_text.is_empty() {
                 ui.label(egui::RichText::new(&info.source_text).small().color(theme::TEXT_WEAK));
             }
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| match &info.update_folder {
+                Some(folder) => {
+                    ui.label(format!("Update folder: {folder}"));
+                    if ui.small_button("Change…").clicked() {
+                        requests.push(Request::PickUpdateFolder);
+                    }
+                    if ui.small_button("Stop using it").clicked() {
+                        requests.push(Request::ClearUpdateFolder);
+                    }
+                }
+                None => {
+                    if ui
+                        .button("Get updates from a folder on your network…")
+                        .on_hover_text(
+                            "Pick the folder your build server publishes to, for example \
+                                 \\\\SERVER\\MOTIX\\updates",
+                        )
+                        .clicked()
+                    {
+                        requests.push(Request::PickUpdateFolder);
+                    }
+                }
+            });
             ui.add_space(8.0);
             ui.separator();
             sharing(ui, info, requests);

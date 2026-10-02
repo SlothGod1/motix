@@ -4,26 +4,30 @@
 //! cargo run -p xtask -- keygen <secret-key-file>     # new update-signing key pair
 //! cargo run -p xtask -- manifest <version> <files…>  # write SHA256SUMS for a release
 //! cargo run -p xtask -- sign <file>                  # sign with $MOTIX_UPDATE_SIGNING_KEY → <file>.sig
+//! cargo run -p xtask -- publish <version> <motix.exe> <LICENSE> <key-file> <to-folder> [notes-file]
 //! ```
 //!
 //! The signing key never appears on the command line or in logs: `sign` reads it from
-//! the environment (a GitHub Actions secret in CI).
+//! the environment (a GitHub Actions secret in CI) and `publish` from a private file on
+//! the build server (ADR-036).
 
 #![forbid(unsafe_code)]
+
+mod publish;
 
 use ed25519_dalek::{Signer, SigningKey};
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
 use std::process::ExitCode;
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().fold(String::new(), |mut s, b| {
         let _ = write!(s, "{b:02x}");
         s
     })
 }
 
-fn parse_seed(text: &str) -> Option<[u8; 32]> {
+pub(crate) fn parse_seed(text: &str) -> Option<[u8; 32]> {
     let text = text.trim();
     if text.len() != 64 {
         return None;
@@ -84,7 +88,12 @@ fn main() -> ExitCode {
         Some("keygen") if args.len() == 2 => keygen(&args[1]),
         Some("manifest") if args.len() >= 3 => manifest(&args[1], &args[2..]),
         Some("sign") if args.len() == 2 => sign(&args[1]),
-        _ => Err("usage: xtask keygen <secret-file> | manifest <version> <files…> | sign <file>".to_owned()),
+        Some("publish") if (6..=7).contains(&args.len()) => publish::run(&args[1..]),
+        _ => Err(
+            "usage: xtask keygen <secret-file> | manifest <version> <files…> | sign <file> | \
+                  publish <version> <exe> <license> <key-file> <to-folder> [notes-file]"
+                .to_owned(),
+        ),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
