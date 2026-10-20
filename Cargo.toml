@@ -17,7 +17,7 @@ motix-ui = { path = "crates/motix-ui" }
 motix-update = { path = "crates/motix-update" }
 motix-media = { path = "crates/motix-media" }
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "accesskit", "default_fonts", "wayland", "x11"] }
-egui = "0.36.2"
+egui = "0.37.0"
 egui_tiles = "0.17.1"
 egui_kittest = { version = "0.36.2", features = ["wgpu", "snapshot"] }
 rfd = "0.17.2"
